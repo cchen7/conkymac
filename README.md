@@ -28,6 +28,14 @@ zsh scripts/validate.sh --gui
 
 `CONKYMAC_BUILD_DIR` 可指定隔离构建目录。`validate.sh` 遇到指标不可用会以非零状态结束，不能将沙箱里的部分成功当成完整通过。天气、日历、GPU 占用、Conky 文本模板（`conky.text`）渲染和完整桌面行为矩阵仍待实现。温度与频率依赖私有接口（SMC、IOReport），只在 M4 Max / macOS 27 验证过，其他芯片可能显示 N/A。
 
+## 打包发布（DMG）
+
+`zsh scripts/package-dmg.sh` 生成 Developer ID 签名、Hardened Runtime、经 Apple 公证并钉票据的 `ConkyMac-<版本>.dmg`（仅 Apple Silicon），输出到 `~/Local/my-proj-temp/conkymac/dist/`。app 与 DMG 各公证、各钉票据一次，离线安装也能通过 Gatekeeper。
+
+前置（一次性）：钥匙串里有且只有一个 “Developer ID Application” 证书（或用 `CONKYMAC_SIGN_IDENTITY` 指定）；用 `xcrun notarytool store-credentials conkymac-notary --apple-id <Apple ID> --team-id <Team ID>` 保存公证凭据（App 专用密码由该命令交互输入，存入钥匙串；`CONKYMAC_NOTARY_PROFILE` 可改名）。`CONKYMAC_SIGN_IDENTITY=-` 只做临时签名预演，不公证。
+
+应用不需要任何 entitlement：SMC/IOReport 只读、`/bin/ps` 与 Lua 在 Hardened Runtime 下实测可用。
+
 ## Conky Lua 主题（CoreGraphics 版 cairo 子集）
 
 不依赖 Cairo C 库：内置 Lua 5.4.9（`Sources/CLua`），由 C 桥 `Sources/ConkyLuaBridge` 在 CoreGraphics 上实现脚本可调用的 `cairo_*` 子集。所有 `lua_pcall` 与 Lua C 函数都在 C 里，Lua 错误不会穿过 Swift 栈。
