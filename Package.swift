@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [.executable(name: "ConkyMac", targets: ["ConkyMac"])],
     targets: [
+        .target(name: "CLua", exclude: ["LICENSE"], cSettings: [.define("LUA_USE_MACOSX")]),
         .target(name: "ConkyMacCore"),
         .executableTarget(name: "ConkyMac", dependencies: ["ConkyMacCore"]),
         .testTarget(name: "ConkyMacCoreTests", dependencies: ["ConkyMacCore"])
