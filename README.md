@@ -2,7 +2,25 @@
 
 在 macOS 上实现原生桌面监控，并通过配置转换和脚本适配复用 Conky 生态中的外观主题。
 
-目标是高性能原生 macOS 程序。当前处于架构调研阶段，尚未实现原生应用。推荐以 Swift 构建应用、AppKit 窗口、共享采集与调度、主题模型和原生渲染；参考 Stats 的采集方法，保留 Lua/Cairo 作为复杂主题适配层。Conky 主要作为语法与主题行为参考，实际复用范围由代表主题和性能验证决定。
+目标是高性能原生 macOS 程序。现有 Swift/AppKit 侧栏原型以用户指定的 [Simple-Conky-theme](https://github.com/Abs-30/Simple-Conky-theme) 为外观参考：时钟、CPU 历史图、内存、磁盘、电池、运行时间与网络。共享采集在后台串行队列以 1 Hz 运行；磁盘容量和电池每 30 秒更新。未接通的频率、温度显示 N/A。
+
+**当前暂停于本地验证和提交阶段**：Release 构建、4 项核心测试及独立二进制的离屏画面通过；宿主 GUI、完整指标校验和实现提交被自动审批服务的内部错误阻止。用户要求保留现场，待审批恢复后继续。详见 [CHECKPOINT.md](CHECKPOINT.md) 和 [验证记录](docs/native-prototype-validation.md)。
+
+## 构建与运行
+
+需要现有 Xcode/Swift 6 工具链。编译最低系统暂设 macOS 14，尚未在 macOS 14 实机验证。无第三方包依赖、无需安装字体，构建产物默认放在 `/private/tmp/conkymac-build`。
+
+```sh
+zsh scripts/build-app.sh
+open /private/tmp/conkymac-build/ConkyMac.app --args --preview
+zsh scripts/validate.sh --gui
+```
+
+GUI 命令留待宿主验证；直接启动应用默认进入透明桌面模式，菜单栏提供 Preview、Show on Desktop、Hide 和 Quit。关闭预览窗口只隐藏并停止采集；Quit 才退出。当前会话没有安装或常驻运行该应用。
+
+命令行选项：`--probe 5` 输出真实样本，`--render /tmp/simple.png` 输出固定输入 PNG，`--scale 1|2` 指定像素倍率，`--smoke 15` 运行 GUI 后自动退出。`--interface en0` 可指定网络接口；默认使用系统主接口，可能是 VPN。`SESSION UP/DOWN` 只累计应用有效采样区间的所选接口流量，暂停区间不补算。
+
+`CONKYMAC_BUILD_DIR` 可指定隔离构建目录。`validate.sh` 遇到指标不可用会以非零状态结束，不能将沙箱里的部分成功当成完整通过。Lua/Cairo、天气、日历、GPU、进程榜、主题转换器和完整桌面行为矩阵仍待实现。
 
 ## 调研与计划
 
@@ -11,9 +29,7 @@
 - [任务拆解与验收标准](research/macos-roadmap.md)
 - [Swift 原生架构与性能决策](research/swift-native-architecture.md)
 
-已完成的 39 项测试及配置烟测属于 Conky 上游的无图形版本。传感器探针验证了本机上的部分 Stats 采集方法；这些结果不代表 ConkyMac 已完成显示、主题兼容或应用运行验证。
-
-下一步是选择代表主题，先完成 Swift 原生窗口、共享指标快照与一个原生主题；随后接通一个真实 Lua/Cairo 主题，分别建立视觉和性能基线。
+上游 39 项 CTest 与本项目 4 项 Swift 测试是两套独立结果。Stats 探针并不代表传感器已接入本应用。当前还没有原生应用 CPU/RSS/Instruments 性能基线，也未完成原主题全部部件或逐像素迁移验收。
 
 ## 参考项目
 

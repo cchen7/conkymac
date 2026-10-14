@@ -1,0 +1,129 @@
+import Foundation
+
+public struct Capacity: Codable, Sendable {
+    public let used: Double
+    public let total: Double
+    public let sampledAt: Date
+    public var fraction: Double { total > 0 ? min(1, max(0, used / total)) : 0 }
+}
+
+public struct Battery: Codable, Sendable {
+    public let fraction: Double?
+    public let state: String
+    public let sampledAt: Date
+}
+
+public struct Network: Codable, Sendable {
+    public let interface: String
+    public let uploadBytesPerSecond: Double?
+    public let downloadBytesPerSecond: Double?
+    public let sessionUploadBytes: Double
+    public let sessionDownloadBytes: Double
+}
+
+/// Immutable, app-wide input. nil means unavailable or waiting for a baseline.
+/// Rates use monotonic time; sampledAt is wall time for display and diagnostics.
+public struct Snapshot: Codable, Sendable {
+    public let sequence: UInt64
+    public let sampledAt: Date
+    public let systemVersion: String
+    public let uptime: Double?
+    public let cpuFraction: Double?
+    public let memory: Capacity?
+    public let storage: Capacity?
+    public let battery: Battery?
+    public let network: Network?
+    public let issues: [String]
+    public let collectionMilliseconds: Double
+
+    public static let fixture = Snapshot(
+        sequence: 1, sampledAt: Date(timeIntervalSince1970: 1778077020), systemVersion: "macOS 14.0", uptime: 29_321,
+        cpuFraction: 0.14,
+        memory: Capacity(used: 23 * pow(1024, 3), total: 64 * pow(1024, 3), sampledAt: Date(timeIntervalSince1970: 1778077020)),
+        storage: Capacity(used: 412 * pow(1024, 3), total: 994 * pow(1024, 3), sampledAt: Date(timeIntervalSince1970: 1778077020)),
+        battery: Battery(fraction: 0.86, state: "On battery", sampledAt: Date(timeIntervalSince1970: 1778077020)),
+        network: Network(interface: "en0", uploadBytesPerSecond: 18_432, downloadBytesPerSecond: 293_601,
+                         sessionUploadBytes: 5_987_369, sessionDownloadBytes: 510_656_512),
+        issues: [], collectionMilliseconds: 0
+    )
+}
+
+public struct CPUTicks: Sendable {
+    public let user: UInt32
+    public let system: UInt32
+    public let idle: UInt32
+    public let nice: UInt32
+
+    public init(user: UInt32, system: UInt32, idle: UInt32, nice: UInt32) {
+        self.user = user; self.system = system; self.idle = idle; self.nice = nice
+    }
+
+    public func fraction(since previous: CPUTicks) -> Double? {
+        let deltas = [user &- previous.user, system &- previous.system,
+                      idle &- previous.idle, nice &- previous.nice]
+        // Small wrapping deltas are valid. A huge backwards jump means reset.
+        guard deltas.allSatisfy({ $0 <= UInt32(Int32.max) }) else { return nil }
+        let total = deltas.reduce(UInt64(0)) { $0 + UInt64($1) }
+        guard total > 0 else { return nil }
+        return Double(total - UInt64(deltas[2])) / Double(total)
+    }
+}
+
+public struct NetworkCounter: Sendable {
+    public let interface: String
+    public let received: UInt64
+    public let sent: UInt64
+    public let time: Double
+    public init(interface: String, received: UInt64, sent: UInt64, time: Double) {
+        self.interface = interface; self.received = received; self.sent = sent; self.time = time
+    }
+}
+
+public struct NetworkTracker {
+    private var previous: NetworkCounter?
+    private var upload: Double = 0
+    private var download: Double = 0
+    public init() {}
+
+    public mutating func resetBaseline() { previous = nil }
+
+    public mutating func update(_ current: NetworkCounter?) -> Network? {
+        guard let current else {
+            previous = nil
+            return nil
+        }
+        defer { previous = current }
+        guard let old = previous, old.interface == current.interface,
+              current.time > old.time, current.time - old.time <= 5,
+              current.received >= old.received, current.sent >= old.sent else {
+            return Network(interface: current.interface, uploadBytesPerSecond: nil,
+                           downloadBytesPerSecond: nil, sessionUploadBytes: upload, sessionDownloadBytes: download)
+        }
+        let sent = Double(current.sent - old.sent)
+        let received = Double(current.received - old.received)
+        upload += sent; download += received
+        return Network(interface: current.interface, uploadBytesPerSecond: sent / (current.time - old.time),
+                       downloadBytesPerSecond: received / (current.time - old.time),
+                       sessionUploadBytes: upload, sessionDownloadBytes: download)
+    }
+}
+
+/// Fixed memory, ordered oldest-to-newest only when the renderer requests it.
+public struct History {
+    private var storage: [Double?]
+    private var cursor = 0
+    public private(set) var count = 0
+    public init(capacity: Int) {
+        precondition(capacity > 0)
+        storage = Array(repeating: nil, count: capacity)
+    }
+    public mutating func append(_ value: Double?) {
+        storage[cursor] = value.map { min(1, max(0, $0)) }
+        cursor = (cursor + 1) % storage.count
+        count = min(count + 1, storage.count)
+    }
+    public var values: [Double?] {
+        let start = count == storage.count ? cursor : 0
+        return (0..<count).map { storage[(start + $0) % storage.count] }
+    }
+}

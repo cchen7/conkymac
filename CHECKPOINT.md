@@ -2,6 +2,75 @@
 
 记录日期：2026-10-14。新会话先读本文件，再读取下面的架构和任务文档。读取后核对当前 Git 状态与用户最新要求，不要重复完成已有调研。
 
+## 0. 最新接续状态（优先于下面的初始调研归档）
+
+**用户已要求保留现场，待自动审批恢复后继续。不要在未恢复会话前继续申请权限、运行宿主 GUI 或提交。**
+
+本轮用户追加要求：可以 worktree/subagent 并行、必须 code review、做好版本管理；并选定 [Abs-30/Simple-Conky-theme](https://github.com/Abs-30/Simple-Conky-theme) 为首个参考主题。
+
+### 读取顺序
+
+1. 本节；然后 [当前实施计划](docs/implementation-plan.md)。
+2. [原生原型实现、审查与验证](docs/native-prototype-validation.md)。
+3. [Swift 架构](research/swift-native-architecture.md)、[路线图](research/macos-roadmap.md)。
+4. 主题迁移文档目前仍在独立 worktree：`/private/tmp/conkymac-theme-docs-20261014/docs/simple-theme-migration.md`，待提交整合。
+
+### Git 与并行工作
+
+- 已提交原有 5 份调研文档作为基线：`bbfe390 docs: establish ConkyMac architecture and research baseline`。
+- `main` 保留该基线；当前工作分支为 `feat/simple-native-sidebar`。
+- 独立文档 worktree：`/private/tmp/conkymac-theme-docs-20261014`，分支 `docs/simple-theme-plan`，基于同一基线，只有新增迁移文档尚未提交。
+- 主工作区新增 `.gitignore`、`Package.swift`、`Sources/`、`Tests/`、`Resources/`、`scripts/`、`THIRD_PARTY_NOTICES.md`、`docs/`，并更新 README、架构、路线图和本 checkpoint。**这些实现和最新文档全部尚未提交，应保留。**
+- 没有 push、合并 main 或删除 worktree。
+- 文档 subagent 独立写作；另一个 subagent 做核心快审与最终整体只读 code review。两者已结束。
+
+### 已实现与已验证
+
+- Swift/AppKit + CoreText 原生侧栏，参考 Screenshot4；不需要 Lua/Cairo 即可绘制当前内容。文字/CPU 历史/进度条采用原生实现。
+- CPU、内存、网络、运行时间、电池、Data 卷容量快照；1 Hz 串行后台共享采集，慢指标 30 秒缓存。支持 `--interface`。
+- 频率/温度显示 N/A；天气/日历/GPU/进程榜未实现。未运行或分发上游主题脚本、字体和壁纸；主题无顶层许可声明。
+- 透明桌面、预览、菜单栏 Hide/Show/Quit、sleep/wake 清基线的代码已实现，**尚未完成宿主 GUI 行为验证**。
+- Release 构建成功，Swift Testing **4/4 通过**；脚本语法、plist 和本地 ad-hoc 签名验证成功。
+- 最终独立二进制固定输入 1×/2×离屏 PNG 已查看；相同环境下 2×重复生成 SHA-256 一致。
+- 沙箱内 5 次真实采样已读 CPU/RAM/Storage/Battery/Network；网络主接口是 `utun8`，没有将物理/VPN流量重复累加。`kern.boottime` 被沙箱拒绝，uptime 为 nil。校验脚本明确返回 `SAMPLE_CHECK_PARTIAL`/exit 2，**不是全项通过**。
+- 审查发现并修复三项：跨睡眠连续时钟、网络重建基线保持 session 累计、CPU 历史图最新列裁切。细节见验证记录。
+
+### 未解决的执行/审批边界
+
+- bundle 内 `--render` 和 `--preview --smoke` 在沙箱退出 134，无 stderr 详情；独立 Release 二进制离屏正常。需宿主运行区分沙箱/AppKit/打包原因，不能断言只是沙箱问题。
+- 最初 Git 基线操作的权限升级成功。后续 Git add/commit/cherry-pick 以及宿主只读探针的权限申请持续收到：`Automatic approval review failed`，`Encrypted function output content could not be decrypted or decoded`，`invalid_request_body`。
+- 工具明确说动作未执行、不是风险判定。没有绕过审批。向用户解释后，用户选择 **“保留现场，稍后恢复审批再继续”**。
+- 真实 GUI、完整指标烟测、CPU/RSS/绘制 p95、Instruments、退出无残留、真实休眠/Spaces/多屏均未验收。P1/P2 不得标记完成。
+
+### 可复用资产与恢复步骤
+
+```text
+/private/tmp/conkymac-build/
+  build/out/Products/Release/ConkyMac  # 已验证独立二进制的离屏/部分采样
+  ConkyMac.app                       # 已构建、ad-hoc 签名；宿主运行待验
+/private/tmp/conkymac-validation-20261014/
+  build-final.log / tests-final.log
+  probe-final-sandbox.jsonl
+  simple-final-1x.png / simple-final-2x.png / simple-repeat-2x.png
+/private/tmp/conkymac-simple-reference-20261014/
+  # Abs-30 参考提交 5895d2e8b5e726f25db88826df252fad81bea3ed
+/private/tmp/conkymac-theme-docs-20261014/
+  docs/simple-theme-migration.md
+```
+
+恢复后先核对工作树与用户要求，接着：
+
+1. 在文档 worktree 提交该新文档，然后 cherry-pick 到当前功能分支；不要丢失未提交原型。
+2. 宿主运行 `zsh scripts/validate.sh --gui`。有退出 134 则优先调查 bundle 与独立二进制差异。
+3. 实际截图/桌面行为与性能检查；只记录真正执行的结果。
+4. 完成实现提交和验证记录提交；未获额外要求不推送远端。
+
+构建使用 `zsh scripts/build-app.sh` / `zsh scripts/swift.sh test -c release`，16 路、增量、缓存全在临时目录。`CONKYMAC_BUILD_DIR` 可指定另一隔离目录。最低 macOS 14 是暂定编译目标，不是实机兼容结论。
+
+---
+
+**以下第 1–9 节是接续前的初始调研归档；涉及“尚无应用代码/尚无提交”等状态，以第 0 节为准。**
+
 ## 1. 工作目录与仓库
 
 **后续开发目录：`/Users/chenxin/Local/conkymac`。** 本次会话的初始工作目录仍是 `/Users/chenxin/Local/conky`，但那个目录是上游参考，不是新应用的开发仓库。

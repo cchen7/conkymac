@@ -1,6 +1,6 @@
 # Swift 原生架构与性能决策
 
-日期：2026-10-14。项目：[cchen7/conkymac](https://github.com/cchen7/conkymac)。这是设计评估，尚未实现应用，也没有原生应用的性能测试结果。
+日期：2026-10-14。项目：[cchen7/conkymac](https://github.com/cchen7/conkymac)。本文保留初始设计评估。后续已实现首个 Swift/AppKit 侧栏原型，见 [实现与验证记录](../docs/native-prototype-validation.md)；尚无宿主 GUI 验证和原生应用性能基线。以下设计/调研结论不能代替新原型的执行结果。
 
 ## 1. 建议
 
