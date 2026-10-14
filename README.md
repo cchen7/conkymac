@@ -4,7 +4,7 @@
 
 目标是高性能原生 macOS 程序。现有 Swift/AppKit 侧栏原型以用户指定的 [Simple-Conky-theme](https://github.com/Abs-30/Simple-Conky-theme) 为外观参考：时钟、CPU 历史图、内存、磁盘、电池、运行时间与网络。共享采集在后台串行队列以 1 Hz 运行；磁盘容量和电池每 30 秒更新。未接通的频率、温度显示 N/A。
 
-**当前暂停于本地验证和提交阶段**：Release 构建、4 项核心测试及独立二进制的离屏画面通过；宿主 GUI、完整指标校验和实现提交被自动审批服务的内部错误阻止。用户要求保留现场，待审批恢复后继续。详见 [CHECKPOINT.md](CHECKPOINT.md) 和 [验证记录](docs/native-prototype-validation.md)。
+**当前状态**：原型已提交；Release 构建、5 项核心测试、宿主采样、预览/桌面模式 GUI 烟测和 120 秒性能基线已实测通过。菜单切换、休眠、Spaces/多屏仍待手动验证。详见 [CHECKPOINT.md](CHECKPOINT.md) 和 [验证记录](docs/native-prototype-validation.md)。
 
 ## 构建与运行
 
@@ -16,7 +16,7 @@ open /private/tmp/conkymac-build/ConkyMac.app --args --preview
 zsh scripts/validate.sh --gui
 ```
 
-GUI 命令留待宿主验证；直接启动应用默认进入透明桌面模式，菜单栏提供 Preview、Show on Desktop、Hide 和 Quit。关闭预览窗口只隐藏并停止采集；Quit 才退出。当前会话没有安装或常驻运行该应用。
+直接启动应用默认进入透明桌面模式，菜单栏提供 Preview、Show on Desktop、Hide 和 Quit。关闭预览窗口只隐藏并停止采集；Quit 才退出。当前会话没有安装或常驻运行该应用。
 
 命令行选项：`--probe 5` 输出真实样本，`--render /tmp/simple.png` 输出固定输入 PNG，`--scale 1|2` 指定像素倍率，`--smoke 15` 运行 GUI 后自动退出。`--interface en0` 可指定网络接口；默认使用系统主接口，可能是 VPN。`SESSION UP/DOWN` 只累计应用有效采样区间的所选接口流量，暂停区间不补算。
 

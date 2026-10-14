@@ -10,12 +10,14 @@
 - [x] Release 构建，4 项核心测试验证差分、缺失数据、历史有界行为。
 - [x] 固定输入 1×/2×画面检查，同机重复渲染哈希一致。
 - [x] 两轮 subagent code review，修复休眠时钟、网络累计清零、图表最新列裁切。
-- [ ] 宿主真实采样和窗口运行验证；沙箱内部分采样成功，uptime 受限，bundle 运行 exit 134。
+- [x] 宿主真实采样和窗口运行验证：采样全项通过，bundle 预览/桌面模式退出 0、透明、鼠标穿透、无残留；exit 134 仅出现在执行沙箱。
+- [x] 120 秒 Release 性能基线；修复宿主验证发现的网络计数器 32 位回绕问题，测试 5/5。
 - [x] 更新 README、路线图和 CHECKPOINT，保留未完成边界。
-- [ ] 提交实现和整合文档 worktree；自动审批内部故障后用户要求保留现场。
+- [x] 提交实现和整合文档（e33b196、dcbdfa2）。
+- [ ] 手动验证菜单栏 Hide/Show/Preview、休眠/唤醒、Spaces/多屏；Instruments profile。
 
 完成标准：无全局依赖安装；单轮单次系统采样；首次差分无伪造 0；不可用值显示 N/A；1 Hz 连续更新；固定输入渲染可复现；启动/退出无遗留子进程。性能记录只能表述实测范围，不提前宣称 P1/P2 全部完成。
 
 后续另做：温度/频率/GPU、进程排行、天气/日历、Lua/Cairo、完整主题转换和 Spaces/多屏矩阵。
 
-停止点：不再申请权限或尝试宿主运行；待用户恢复。详见 `docs/native-prototype-validation.md`。
+详见 `docs/native-prototype-validation.md`。

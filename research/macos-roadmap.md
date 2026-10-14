@@ -2,7 +2,7 @@
 
 开发仓库：[cchen7/conkymac](https://github.com/cchen7/conkymac)，本地目录 `/Users/chenxin/Local/conkymac`。Conky 上游源码保留在 `/Users/chenxin/Local/conky` 作为参考。
 
-当前范围：可行性调研完成，用户选择 Simple-Conky-theme，已开始原生侧栏实现。详细依据见 [macos-feasibility.md](macos-feasibility.md) 和 [Swift 架构与性能决策](swift-native-architecture.md)。原型目前停在待宿主验证/提交阶段，见 [当前记录](../docs/native-prototype-validation.md)；P1/P2 尚未完成。
+当前范围：可行性调研完成，用户选择 Simple-Conky-theme，已开始原生侧栏实现。详细依据见 [macos-feasibility.md](macos-feasibility.md) 和 [Swift 架构与性能决策](swift-native-architecture.md)。原型已提交并完成宿主 GUI/采样/120 秒性能基线，见 [当前记录](../docs/native-prototype-validation.md)；Lua/Cairo 与桌面行为矩阵未做，P1/P2 尚未完成。
 
 ## 1. 当前检查点
 
@@ -23,7 +23,7 @@
 - [ ] Cocoa 桌面窗口与主题视觉验证。
 - [ ] CPU 频率、风扇 RPM、完整功耗等采集闭环。
 
-Conky 引擎未修改；未安装全局包或服务、未执行传感器写入。新原型在功能分支，宿主验证与实现提交因自动审批内部故障暂停，用户要求保留现场。
+Conky 引擎未修改；未安装全局包或服务、未执行传感器写入。新原型在功能分支 `feat/simple-native-sidebar`，已提交并完成宿主验证。
 
 ## 2. 验收目标先围绕主题定义
 
@@ -109,4 +109,4 @@ Conky 引擎未修改；未安装全局包或服务、未执行传感器写入�
 
 先锁定喜欢的主题，用 Swift 实现应用/窗口、共享采集、调度和原生主题模型，以一个文字/圆环主题实施 P1 和 P2。然后接通一个真实 Lua/Cairo 主题。Conky 的模板行为作为参考，按样本实现必要子集；Stats 的采集算法与映射按需提取。原生与兼容路径分别测量，先消除重复采集、解析和重绘，再依据 profile 优化。
 
-原生侧栏已开始实现；当前先恢复宿主 GUI 验证、性能测量与版本提交，再进入其他部件和 Lua/Cairo。现有原型只使用 Apple 框架，无新增全局依赖。若后续所需依赖只能通过新增全局 Homebrew 包提供，需就具体依赖取得授权；项目内或可丢弃隔离环境优先。
+原生侧栏已实现并完成首轮宿主验证与性能基线；下一步是手动桌面行为检查，再进入其他部件和 Lua/Cairo。现有原型只使用 Apple 框架，无新增全局依赖。若后续所需依赖只能通过新增全局 Homebrew 包提供，需就具体依赖取得授权；项目内或可丢弃隔离环境优先。
