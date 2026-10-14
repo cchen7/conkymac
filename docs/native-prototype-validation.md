@@ -93,9 +93,39 @@
 
 自动触发“显示桌面”未成功：从本会话启动 Mission Control 被杀（exit 137），System Events 需辅助功能授权，未申请；以上手势结论来自用户实机操作。
 
+## 进程榜、温度/频率与主题（2026-10-14 晚）
+
+均为宿主实测，机器 Apple M4 Max（12P+4E）、macOS 27.0.1，Release。
+
+### 进程榜
+
+- libproc（`proc_pid_rusage`）对本进程只成功 728/1083 个，354 个 EPERM，包括 WindowServer 等 root 进程。用户选择改用 setuid `/bin/ps -A -o pid=,%cpu=,rss=,state=,comm=`，每 3 秒一次。
+- 口径：CPU% 是 ps 的衰减平均（单核 100%），内存是 RSS；一次 ps 同时得到 CPU 榜、内存榜、进程总数和 R 状态数。
+- 开销（20 次平均）：本进程约 2 ms，ps 子进程约 25–27 ms，即每 3 秒一次约占单核 0.8–0.9%。`ps -c` 只省约 1 ms 且会截断名称，未采用。Foundation `Process.waitUntilExit` 的墙钟时间是 posix_spawn 的两倍，改用 posix_spawn + poll + waitpid。
+- 审查后加固：`LC_ALL=C`（`LC_ALL=de_DE.UTF-8` 下 ps 输出 `0,0`，原先会全部解析失败，已实测修复）、不继承描述符、1.5 s 超时后 SIGKILL 并回收、先关读端再 waitpid、按 pid 稳定排序、按渲染宽度截断名称。
+
+### 温度
+
+- SMC 枚举 3,493 个键约 30 ms，启动后做一次。`Tp1*/Tp2*` 读数为 -4、1.5、0，不是温度（调研代理曾误报）。P 核 `Tp0*/Tpx*` 闲置时钳在 40.00。
+- 采用簇级键 `Tpx*`（12）与 `Tex*`（4）的最大值：闲置/8 进程满载/回落时为 48.23/66.62/50.34 °C，与全部约 67 个逐核键的最大值完全相同，读取量约为后者的 1/4。GPU 取 `Tg*`（44 个）最大值。界面显示的是“最热传感器”，不是平均值。
+- 空的键发现结果不缓存，偶发失败会在下次采样重试。
+
+### 频率与簇占用
+
+- IOReport `CPU Stats` / `CPU Complex Performance States` 的 `ECPU`、`PCPU`、`PCPU1` 通道，按 pmgr `voltage-states1/5-sram` 表加权驻留时间；本机 E 1020–2592 MHz（7 级）、P 1260–4512 MHz（20 级），单位 kHz。状态数与表长不一致时报 issue 而不给数；表只去掉尾部 0。两个 P 簇按活跃驻留加权合并。
+- 采样实测：P 2.4–3.8 GHz、E 1.3–1.5 GHz（轻负载）。P/E 簇占用按 `IODeviceTree:/cpus` 每核 `cluster-type` 计算（本机 cpu0–3 为 E）。
+- 开销：频率与温度每 2 秒一次，每次约 10 ms；`--probe 20` 的 CPU 时间由 0.39/0.37 s 增至 0.50/0.47 s，约 +0.5% 单核。每秒采样时为 +0.8%，所以改为 2 秒。
+
+### 主题
+
+- Simple 增加 PROCESSES 区，面板 912pt；Minimalis 340×620pt；Simple Plus（默认）300×812pt。三者都在双屏桌面模式烟测退出 0、无残留进程，绘制 p95 约 2.3–3.7 ms（5–15 样本）。
+- 120 秒双屏 Simple（含进程榜）：本进程 CPU 时间 1.75 s（单窗口无阴影基线为 0.71 s；差额主要来自双窗口绘制 246 次与阴影，ps 本进程部分约 0.08 s）、RSS 91–99 MiB、绘制 p95 2.95 ms、采集 p95 59 ms（ps 那一轮的墙钟时间）。
+- 固定渲染 SHA-256（2×）：Simple `be97672a…`、Simple Plus `c474572c…`、Minimalis `47ed55b4…`、Lua arcs `a501cfc5…`、本地 rings-clock `a28ddf7d…`；重复渲染逐字节一致。
+- Lua/Cairo 分支由子代理在独立 worktree 完成后合并（`0a5a3aa`）。合并后审查发现：时间预算可被脚本的 `pcall` 或 `__gc` 终结器绕过，从而卡死主线程；已修复并加测试（`192b75a`），测试 14 + 8 项通过。
+
 ### 仍未验证
 
-菜单栏 Hide/Show/Quit 的实际点击；Spaces 逐个切换、显示器热插拔/重排、Stage Manager；真实休眠/唤醒；Instruments profile；长时间（小时级）内存曲线；macOS 14 实机。Quit 路径仅经 `--smoke` 结束时的 `NSApp.terminate` 验证。
+菜单栏 Hide/Show/Quit 与 Theme 切换的实际点击；温度/频率与活动监视器或 `powermetrics` 的对照；Spaces 逐个切换、显示器热插拔/重排、Stage Manager；真实休眠/唤醒；Instruments profile；长时间（小时级）内存曲线；macOS 14 实机。Quit 路径仅经 `--smoke` 结束时的 `NSApp.terminate` 验证。
 
 ## 恢复前原定顺序（已执行 1–3 的可自动部分）
 

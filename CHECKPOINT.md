@@ -14,24 +14,22 @@
 
 ### Git
 
-- `main` = `bbfe390` 调研基线。功能分支 `feat/simple-native-sidebar`：`e33b196` 迁移文档、`dcbdfa2` 原型，其后为宿主验证与网络回绕修复提交（见 `git log`）。
-- 文档 worktree `/private/tmp/conkymac-theme-docs-20261014`（分支 `docs/simple-theme-plan`，停在 `e33b196`，内容已在功能分支中）可删除，待用户确认。
-- 未 push、未合并 main。
+- `main` = `bbfe390` 调研基线；功能分支 `feat/simple-native-sidebar` 含原型、宿主验证、双屏、进程榜、传感器、Minimalis、Simple Plus，以及合并进来的 `feat/lua-cairo-theme`（`0a5a3aa`）。用 `git log --oneline` 查看。
+- worktree：`/private/tmp/conkymac-lua`（`feat/lua-cairo-theme`，已合并）、`/private/tmp/conkymac-head`（临时对照构建，detached）、`/private/tmp/conkymac-theme-docs-20261014`（内容已合入）。三者都可删除，待用户确认。
+- 未 push、未合并 main。项目根 `reference/`（用户放的 Minimalis 压缩包和预览图）未跟踪、不提交。
 
 ### 已验证（宿主实测）
 
-- Release 构建；Swift Testing 5/5；1×/2× 固定输入渲染。
-- `--probe 5` 全项 `SAMPLE_CHECK_OK`（含 uptime）。
-- bundle 预览与桌面模式烟测退出 0、无残留；桌面窗口透明、鼠标穿透、位于桌面图标层 −1；截图确认实时数据绘制。之前的 exit 134 仅在执行沙箱。
-- 120 秒基线：CPU 时间 0.71 s、RSS ≈83 MiB 平稳、线程 ≤17、绘制 p95 2.49 ms、采集 p95 1.03 ms。
-- 发现并修复：macOS 27 对本进程的网络字节计数截为 32 位且 1 KiB 取整；现按 32 位回绕处理。
-- 用户需求：每块显示器右侧都显示、四指“显示桌面”时可见。已实现每屏一面板（主屏让出 120pt 图标列，`--icon-margin` 可调）和透明模式文字阴影；用户双屏实机确认可见、不压图标、可读。
+- 测试：Swift Testing 核心 14 项 + Lua 桥 8 项；`validate.sh --gui` 通过；五个主题的固定渲染可重复。
+- 双屏桌面：每屏右上角一个面板，所有 Spaces 可见；用户确认显示桌面手势时可见、主屏不压图标、阴影后可读。
+- 数据：进程榜（ps，本进程约 2 ms + 子进程约 26 ms / 3 s）；温度与频率（约 10 ms / 2 s，+0.5% 单核）；网络计数器按 32 位回绕处理。
+- 默认主题 Simple Plus（用户指定：Simple 的日期时钟 + Minimalis 去掉 OS/Kernel 的分区，Simple 视觉）。
 
 ### 未完成
 
-- 手动：菜单栏 Hide/Show/Quit 点击、Spaces 逐个切换、显示器热插拔、真实休眠/唤醒、Stage Manager。
-- Instruments profile、小时级内存曲线、macOS 14 实机。
-- 频率/温度（N/A）、天气/日历/GPU/进程榜、Lua/Cairo 路径。P1/P2 不得标记完成。
+- 用户确认 Simple Plus 实机效果；手动检查菜单 Hide/Show/Quit/Theme、Spaces 切换、热插拔、休眠/唤醒、Stage Manager。
+- Instruments profile、小时级内存曲线、macOS 14 实机、其他 Apple Silicon 型号的传感器映射。
+- Lua 文字 API、clip、`conky.text` 渲染；天气、日历、GPU 占用。P1/P2 不得标记完成。
 
 ### 构建与证据
 

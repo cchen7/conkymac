@@ -6,7 +6,14 @@ The RAM accounting formula and 64-bit network counter approach in
 `Sources/ConkyMacCore/SystemCollector.swift` are adapted with reference to
 [exelban/stats](https://github.com/exelban/stats), commit
 `88d5359ad3466efaa16985646a0bb15c6599109f`, `Modules/RAM/readers.swift` and
-`Modules/Net/readers.swift`. No Stats UI, database, helper, or fan control is included.
+`Modules/Net/readers.swift`. The read-only sensor code in
+`Sources/ConkyMacCore/SensorCollector.swift` and the declarations in
+`Sources/CSystemPrivate/include/CSystemPrivate.h` follow the same commit's
+`SMC/smc.swift`, `Modules/CPU/readers.swift`, `Modules/CPU/bridge.h` and
+`Kit/plugins/SystemKit.swift` (SMC key reads, IOReport residency and pmgr DVFS
+tables); key selection and cluster averaging differ and are documented in
+`docs/native-prototype-validation.md`. No Stats UI, database, helper, or fan
+control is included.
 
 MIT License
 
@@ -76,6 +83,14 @@ The checkout has no top-level license declaration. This prototype contains a
 new native implementation inspired by the sidebar layout; no upstream scripts,
 configuration, wallpaper, screenshots, or bundled fonts are redistributed.
 See `docs/simple-theme-migration.md` for scope and visual differences.
+
+## Minimalis Conky
+
+Layout reference provided by the user: "Minimalis Conky 1.3" by archit3x
+(conky.conf, December 2020; header says "Feel free to modify this script").
+`Sources/ConkyMac/MinimalisTheme.swift` and the Simple Plus layout are new native
+implementations of its arrangement. Its configuration, `ConkySymbols.ttf` font
+and screenshot are not redistributed.
 
 ## Conky
 
