@@ -8,6 +8,14 @@ public struct ProcessSample: Codable, Sendable, Equatable {
     public let memoryBytes: Double
 }
 
+public struct ProcessSummary: Sendable, Equatable {
+    public let byCPU: [ProcessSample]
+    public let byMemory: [ProcessSample]
+    public let total: Int
+    /// ps state R; includes ps itself, as Conky's running_processes would.
+    public let running: Int
+}
+
 /// Top processes from the setuid /bin/ps. Unprivileged libproc reads fail with EPERM
 /// for about a third of processes here, including WindowServer and other root daemons.
 /// %cpu is ps's decaying average; memory is resident size.
@@ -15,7 +23,7 @@ enum ProcessTable {
     /// posix_spawn + waitpid: Foundation's Process.waitUntilExit spins a run loop on this queue.
     /// ps gets a fixed C locale (others print "0,0") and no inherited descriptors, and is
     /// killed if it does not finish within `timeout` so a stall cannot block the sampler.
-    static func read(limit: Int, timeout: Double = 1.5) -> [ProcessSample]? {
+    static func read(limit: Int, timeout: Double = 1.5) -> ProcessSummary? {
         var pipe: [Int32] = [0, 0]
         guard Darwin.pipe(&pipe) == 0 else { return nil }
         var attributes: posix_spawnattr_t?
@@ -27,7 +35,7 @@ enum ProcessTable {
         defer { posix_spawn_file_actions_destroy(&actions) }
         posix_spawn_file_actions_adddup2(&actions, pipe[1], STDOUT_FILENO)
         posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0)
-        let arguments = ["/bin/ps", "-A", "-o", "pid=,%cpu=,rss=,comm="]
+        let arguments = ["/bin/ps", "-A", "-o", "pid=,%cpu=,rss=,state=,comm="]
         var argv = arguments.map { strdup($0) } + [nil]
         var environment = [strdup("LC_ALL=C"), nil]
         defer { (argv + environment).forEach { free($0) } }
@@ -60,8 +68,9 @@ enum ProcessTable {
         return parse(String(decoding: data, as: UTF8.self), limit: limit)
     }
 
-    static func parse(_ output: String, limit: Int) -> [ProcessSample] {
+    static func parse(_ output: String, limit: Int) -> ProcessSummary {
         var samples: [ProcessSample] = []
+        var running = 0
         for line in output.split(separator: "\n") {
             var rest = line[...]
             func field() -> Substring? {
@@ -71,13 +80,16 @@ enum ProcessTable {
                 return rest[..<end]
             }
             guard let pid = field().flatMap({ Int32($0) }), let cpu = field().flatMap({ Double($0) }),
-                  let rss = field().flatMap({ Double($0) }) else { continue }
+                  let rss = field().flatMap({ Double($0) }), let state = field() else { continue }
             let command = String(rest.drop { $0 == " " })
             guard !command.isEmpty else { continue }
             samples.append(ProcessSample(pid: pid, name: (command as NSString).lastPathComponent,
                                          cpuPercent: cpu, memoryBytes: rss * 1024))
+            if state.hasPrefix("R") { running += 1 }
         }
-        samples.sort { ($0.cpuPercent, $0.memoryBytes, $1.pid) > ($1.cpuPercent, $1.memoryBytes, $0.pid) }
-        return Array(samples.prefix(limit))
+        let byCPU = samples.sorted { ($0.cpuPercent, $0.memoryBytes, $1.pid) > ($1.cpuPercent, $1.memoryBytes, $0.pid) }
+        let byMemory = samples.sorted { ($0.memoryBytes, $0.cpuPercent, $1.pid) > ($1.memoryBytes, $1.cpuPercent, $0.pid) }
+        return ProcessSummary(byCPU: Array(byCPU.prefix(limit)), byMemory: Array(byMemory.prefix(limit)),
+                              total: samples.count, running: running)
     }
 }

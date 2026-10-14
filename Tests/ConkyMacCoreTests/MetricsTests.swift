@@ -66,23 +66,25 @@ import Testing
 
 @Test func processTableParsesAndRanks() {
     let output = """
-        1   0.1  29120 /sbin/launchd
-      407  13.1 627000 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
-     3760   3.4 411000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome Helper (Renderer)
-     3761   3.4 999999 /usr/libexec/tie
+        1   0.1  29120 Ss   /sbin/launchd
+      407  13.1 627000 Rs   /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+     3760   3.4 411000 S    /Applications/Google Chrome.app/Contents/MacOS/Google Chrome Helper (Renderer)
+     3761   3.4 999999 R+   /usr/libexec/tie
     garbage line
-       12   0.0      0
+       12   0.0      0 S
     """
-    let top = ProcessTable.parse(output, limit: 3)
-    #expect(top.map(\.name) == ["WindowServer", "tie", "Google Chrome Helper (Renderer)"])
-    #expect(top[0].pid == 407 && top[0].memoryBytes == 627000 * 1024)
-    #expect(ProcessTable.parse("", limit: 5).isEmpty)
+    let summary = ProcessTable.parse(output, limit: 3)
+    #expect(summary.byCPU.map(\.name) == ["WindowServer", "tie", "Google Chrome Helper (Renderer)"])
+    #expect(summary.byCPU[0].pid == 407 && summary.byCPU[0].memoryBytes == 627000 * 1024)
+    #expect(summary.byMemory.map(\.name) == ["tie", "WindowServer", "Google Chrome Helper (Renderer)"])
+    #expect(summary.total == 4 && summary.running == 2)
+    #expect(ProcessTable.parse("", limit: 5).byCPU.isEmpty)
 }
 
 @Test func processTableKillsStalledPs() {
     // A zero budget expires before ps can finish: the child is killed and reaped, not trusted.
     #expect(ProcessTable.read(limit: 5, timeout: 0) == nil)
-    #expect(ProcessTable.read(limit: 5)?.isEmpty == false)
+    #expect(ProcessTable.read(limit: 5)?.byCPU.isEmpty == false)
 }
 
 @Test func dvfsTableDecodesUnits() {
@@ -112,6 +114,14 @@ import Testing
 @Test func temperatureKeysAndHottest() {
     #expect(["Tpx8", "TpxD", "Tex0", "Tex3"].allSatisfy(SensorMath.isCPUTemperatureKey))
     #expect(!["Tp01", "Te05", "Tp1i", "Tp2X", "Tg1U"].contains(where: SensorMath.isCPUTemperatureKey))
+    #expect(SensorMath.isGPUTemperatureKey("Tg1U") && !SensorMath.isGPUTemperatureKey("Tpx8"))
     #expect(SensorMath.hottest([40, 46.4, 43.1, -4, 130]) == 46.4)
     #expect(SensorMath.hottest([1.5, 0]) == nil)
+}
+
+@Test func clusterLoadAveragesByKind() {
+    let kinds: [Int: Character] = [0: "E", 1: "E", 2: "P", 3: "P", 4: "P"]
+    let load = ClusterLoad.from([0.2, 0.4, 0.1, 0.2, 0.3], kinds: kinds)
+    #expect(abs((load?.efficiency ?? 0) - 0.3) < 1e-9 && abs((load?.performance ?? 0) - 0.2) < 1e-9)
+    #expect(ClusterLoad.from([0.5], kinds: [:]) == nil)
 }

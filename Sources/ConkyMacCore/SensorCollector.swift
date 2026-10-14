@@ -44,6 +44,9 @@ enum SensorMath {
         name.hasPrefix("Tpx") || name.hasPrefix("Tex")
     }
 
+    /// GPU die sensors (44 on M4 Max, several pairs offset by a constant); hottest, like CPU.
+    static func isGPUTemperatureKey(_ name: String) -> Bool { name.hasPrefix("Tg") }
+
     /// Hottest plausible core. P-core sensors read a floor of 40 °C when idle, which would
     /// drag an average down; the maximum follows whichever cluster is actually working.
     static func hottest(_ readings: [Double]) -> Double? {
@@ -55,7 +58,7 @@ enum SensorMath {
 /// only on M4 Max / macOS 27; key and property names change between chip generations.
 final class SensorCollector {
     private var smc: io_connect_t = 0
-    private var temperatureKeys: [UInt32]?
+    private var temperatureKeys: (cpu: [UInt32], gpu: [UInt32])?
     private var subscription: IOReportSubscriptionRef?
     private var subscribed: CFMutableDictionary?
     private var previous: CFDictionary?
@@ -119,10 +122,11 @@ final class SensorCollector {
         return CPUFrequency(efficiencyMHz: SensorMath.merge(efficiency), performanceMHz: SensorMath.merge(performance))
     }
 
-    func temperature() -> Double? {
-        guard smc != 0 else { return nil }
+    func temperatures() -> (cpu: Double?, gpu: Double?) {
+        guard smc != 0 else { return (nil, nil) }
         if temperatureKeys == nil { temperatureKeys = discoverTemperatureKeys() }
-        return SensorMath.hottest(temperatureKeys?.compactMap(readFloat) ?? [])
+        return (SensorMath.hottest(temperatureKeys?.cpu.compactMap(readFloat) ?? []),
+                SensorMath.hottest(temperatureKeys?.gpu.compactMap(readFloat) ?? []))
     }
 
     private func call(_ input: SMCKeyData) -> SMCKeyData? {
@@ -151,18 +155,23 @@ final class SensorCollector {
     }
 
     /// Enumerates the SMC key table once (about 3,500 keys, ~30 ms here).
-    private func discoverTemperatureKeys() -> [UInt32] {
-        guard let count = readBytes(Self.fourCC("#KEY")), count.bytes.count >= 4 else { return [] }
+    private func discoverTemperatureKeys() -> (cpu: [UInt32], gpu: [UInt32]) {
+        guard let count = readBytes(Self.fourCC("#KEY")), count.bytes.count >= 4 else { return ([], []) }
         let total = count.bytes.prefix(4).reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
         let float = Self.fourCC("flt ")
-        return (0..<min(total, 10_000)).compactMap { index in
+        var keys: (cpu: [UInt32], gpu: [UInt32]) = ([], [])
+        for index in 0..<min(total, 10_000) {
             var input = SMCKeyData()
             input.data8 = 8 // key at index
             input.data32 = index
-            guard let key = call(input)?.key, SensorMath.isCPUTemperatureKey(Self.name(key)),
-                  let value = readBytes(key), value.info.dataType == float, value.info.dataSize == 4 else { return nil }
-            return key
+            guard let key = call(input)?.key else { continue }
+            let name = Self.name(key)
+            let cpu = SensorMath.isCPUTemperatureKey(name)
+            guard cpu || SensorMath.isGPUTemperatureKey(name),
+                  let value = readBytes(key), value.info.dataType == float, value.info.dataSize == 4 else { continue }
+            if cpu { keys.cpu.append(key) } else { keys.gpu.append(key) }
         }
+        return keys
     }
 
     /// Discovery already checked type and size, so one SMC call per key instead of two.

@@ -13,6 +13,21 @@ public struct Battery: Codable, Sendable {
     public let sampledAt: Date
 }
 
+public struct ClusterLoad: Codable, Sendable, Equatable {
+    public let performance: Double?
+    public let efficiency: Double?
+
+    /// Mean load per core kind; kinds come from the device tree as "P"/"E" by logical CPU id.
+    public static func from(_ fractions: [Double], kinds: [Int: Character]) -> ClusterLoad? {
+        func mean(_ kind: Character) -> Double? {
+            let values = fractions.indices.filter { kinds[$0] == kind }.map { fractions[$0] }
+            return values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+        }
+        let load = ClusterLoad(performance: mean("P"), efficiency: mean("E"))
+        return load.performance == nil && load.efficiency == nil ? nil : load
+    }
+}
+
 public struct Network: Codable, Sendable {
     public let interface: String
     public let uploadBytesPerSecond: Double?
@@ -27,26 +42,37 @@ public struct Snapshot: Codable, Sendable {
     public let sequence: UInt64
     public let sampledAt: Date
     public let systemVersion: String
+    public let kernel: String
     public let uptime: Double?
     public let cpuFraction: Double?
     /// Per logical core, in host_processor_info order; nil until a baseline exists.
     public let coreFractions: [Double]?
+    public let clusterLoad: ClusterLoad?
+    public let loadAverage: [Double]?
     public let temperatureCelsius: Double?
+    public let gpuTemperatureCelsius: Double?
     public let frequency: CPUFrequency?
     public let memory: Capacity?
+    public let swap: Capacity?
     public let storage: Capacity?
     public let battery: Battery?
     public let network: Network?
     public let processes: [ProcessSample]?
+    public let processesByMemory: [ProcessSample]?
+    public let processCount: Int?
+    public let runningProcessCount: Int?
     public let issues: [String]
     public let collectionMilliseconds: Double
 
     public static let fixture = Snapshot(
-        sequence: 1, sampledAt: Date(timeIntervalSince1970: 1778077020), systemVersion: "macOS 14.0", uptime: 29_321,
+        sequence: 1, sampledAt: Date(timeIntervalSince1970: 1778077020), systemVersion: "macOS 14.0",
+        kernel: "Darwin 23.0.0 on arm64", uptime: 29_321,
         cpuFraction: 0.14,
         coreFractions: [0.31, 0.22, 0.18, 0.12, 0.09, 0.07, 0.15, 0.04, 0.11, 0.06, 0.20, 0.03, 0.08, 0.13, 0.05, 0.10],
-        temperatureCelsius: 47, frequency: CPUFrequency(efficiencyMHz: 2_571, performanceMHz: 3_610),
+        clusterLoad: ClusterLoad(performance: 0.11, efficiency: 0.21), loadAverage: [1.25, 1.41, 1.51],
+        temperatureCelsius: 47, gpuTemperatureCelsius: 42, frequency: CPUFrequency(efficiencyMHz: 2_571, performanceMHz: 3_610),
         memory: Capacity(used: 23 * pow(1024, 3), total: 64 * pow(1024, 3), sampledAt: Date(timeIntervalSince1970: 1778077020)),
+        swap: Capacity(used: 512 * pow(1024, 2), total: 2 * pow(1024, 3), sampledAt: Date(timeIntervalSince1970: 1778077020)),
         storage: Capacity(used: 412 * pow(1024, 3), total: 994 * pow(1024, 3), sampledAt: Date(timeIntervalSince1970: 1778077020)),
         battery: Battery(fraction: 0.86, state: "On battery", sampledAt: Date(timeIntervalSince1970: 1778077020)),
         network: Network(interface: "en0", uploadBytesPerSecond: 18_432, downloadBytesPerSecond: 293_601,
@@ -58,6 +84,14 @@ public struct Snapshot: Codable, Sendable {
             ProcessSample(pid: 3760, name: "Google Chrome Helper (Renderer)", cpuPercent: 3.4, memoryBytes: 402 * pow(1024, 2)),
             ProcessSample(pid: 682, name: "Finder", cpuPercent: 2.0, memoryBytes: 96 * pow(1024, 2))
         ],
+        processesByMemory: [
+            ProcessSample(pid: 3735, name: "Google Chrome", cpuPercent: 7.1, memoryBytes: 1.4 * pow(1024, 3)),
+            ProcessSample(pid: 23714, name: "Xcode", cpuPercent: 0.4, memoryBytes: 1.1 * pow(1024, 3)),
+            ProcessSample(pid: 407, name: "WindowServer", cpuPercent: 12.4, memoryBytes: 612 * pow(1024, 2)),
+            ProcessSample(pid: 3760, name: "Google Chrome Helper (Renderer)", cpuPercent: 3.4, memoryBytes: 402 * pow(1024, 2)),
+            ProcessSample(pid: 3027, name: "Surge", cpuPercent: 6.0, memoryBytes: 188 * pow(1024, 2))
+        ],
+        processCount: 612, runningProcessCount: 3,
         issues: [], collectionMilliseconds: 0
     )
 }

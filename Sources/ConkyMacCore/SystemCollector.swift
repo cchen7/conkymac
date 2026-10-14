@@ -11,12 +11,22 @@ public final class SystemCollector {
         let version = ProcessInfo.processInfo.operatingSystemVersion
         return "macOS \(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
     }()
+    private let kernel: String = {
+        var info = utsname()
+        uname(&info)
+        func text<T>(_ field: T) -> String {
+            withUnsafeBytes(of: field) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        }
+        return "\(text(info.sysname)) \(text(info.release)) on \(text(info.machine))"
+    }()
+    private let coreKinds = SystemCollector.readCoreKinds()
     private let requestedInterface: String?
     private let bootDate: Date?
     private var previousCPU: CPUTicks?
     private var previousCores: [CPUTicks]?
     private let sensors = SensorCollector()
     private var temperature: Double?
+    private var gpuTemperature: Double?
     private var frequency: CPUFrequency?
     private var nextSensorSample: Double = 0
     private var previousTime: Double?
@@ -26,7 +36,7 @@ public final class SystemCollector {
     private var battery: Battery?
     private var slowIssues: [String] = []
     private var nextSlowSample: Double = 0
-    private var processes: [ProcessSample]?
+    private var processes: ProcessSummary?
     private var nextProcessSample: Double = 0
 
     public init(interface: String? = nil) {
@@ -79,16 +89,21 @@ public final class SystemCollector {
         // IOReport (~5 ms) and SMC (~4 ms) reads every 2 s; frequency averages over that window.
         if started >= nextSensorSample {
             frequency = sensors.frequency()
-            temperature = sensors.temperature()
+            (temperature, gpuTemperature) = sensors.temperatures()
             nextSensorSample = started + 2
         }
         if let issue = sensors.frequencyIssue { issues.append(issue) }
         if temperature == nil { issues.append("Temperature: SMC core sensors unavailable") }
-        return Snapshot(sequence: sequence, sampledAt: now, systemVersion: systemVersion,
+        var load = [Double](repeating: 0, count: 3)
+        let loadAverage = getloadavg(&load, 3) == 3 ? load : nil
+        return Snapshot(sequence: sequence, sampledAt: now, systemVersion: systemVersion, kernel: kernel,
                         uptime: bootDate.map { max(0, now.timeIntervalSince($0)) }, cpuFraction: cpu,
-                        coreFractions: coreFractions, temperatureCelsius: temperature, frequency: frequency,
-                        memory: memory, storage: storage, battery: battery, network: network, processes: processes,
-                        issues: issues, collectionMilliseconds: (Self.continuousSeconds() - started) * 1000)
+                        coreFractions: coreFractions,
+                        clusterLoad: coreFractions.flatMap { fractions in coreKinds.flatMap { ClusterLoad.from(fractions, kinds: $0) } },
+                        loadAverage: loadAverage, temperatureCelsius: temperature, gpuTemperatureCelsius: gpuTemperature,
+                        frequency: frequency, memory: memory, swap: readSwap(at: now), storage: storage, battery: battery,
+                        network: network, processes: processes?.byCPU, processesByMemory: processes?.byMemory,
+                        processCount: processes?.total, runningProcessCount: processes?.running, issues: issues, collectionMilliseconds: (Self.continuousSeconds() - started) * 1000)
     }
 
     public func resetBaselines() {
@@ -123,6 +138,35 @@ public final class SystemCollector {
         guard result == KERN_SUCCESS else { return nil }
         return CPUTicks(user: value.cpu_ticks.0, system: value.cpu_ticks.1,
                         idle: value.cpu_ticks.2, nice: value.cpu_ticks.3)
+    }
+
+    private func readSwap(at date: Date) -> Capacity? {
+        var usage = xsw_usage()
+        var size = MemoryLayout<xsw_usage>.size
+        guard sysctlbyname("vm.swapusage", &usage, &size, nil, 0) == 0 else { return nil }
+        return Capacity(used: Double(usage.xsu_used), total: Double(usage.xsu_total), sampledAt: date)
+    }
+
+    /// "P"/"E" per logical CPU id from IODeviceTree:/cpus, rather than assuming E cores come first.
+    private static func readCoreKinds() -> [Int: Character]? {
+        let cpus = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/cpus")
+        guard cpus != 0 else { return nil }
+        defer { IOObjectRelease(cpus) }
+        var iterator: io_iterator_t = 0
+        guard IORegistryEntryGetChildIterator(cpus, kIODeviceTreePlane, &iterator) == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(iterator) }
+        var kinds: [Int: Character] = [:]
+        while case let entry = IOIteratorNext(iterator), entry != 0 {
+            defer { IOObjectRelease(entry) }
+            func property(_ key: String) -> Any? {
+                IORegistryEntryCreateCFProperty(entry, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
+            }
+            // cluster-type is data ("E"/"P"); logical-cpu-id is a number.
+            guard let type = (property("cluster-type") as? Data)?.first,
+                  let id = (property("logical-cpu-id") as? NSNumber)?.intValue else { continue }
+            kinds[id] = Character(UnicodeScalar(type))
+        }
+        return kinds.isEmpty ? nil : kinds
     }
 
     private func readCores() -> [CPUTicks]? {
