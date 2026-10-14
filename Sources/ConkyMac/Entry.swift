@@ -10,6 +10,7 @@ private struct Options {
     var interface: String?
     var diagnose = false
     var iconMargin = 120.0
+    var theme = "simple"
 
     init(_ arguments: [String]) throws {
         var index = 0
@@ -24,6 +25,9 @@ private struct Options {
             case "--preview": preview = true
             case "--diagnostics": diagnose = true
             case "--interface": interface = try value()
+            case "--theme":
+                theme = try value()
+                guard ["simple", "minimalis"].contains(theme) else { throw CLIError.usage("Theme must be simple or minimalis") }
             case "--icon-margin":
                 guard let number = Double(try value()), (0...600).contains(number) else { throw CLIError.usage("Icon margin must be 0...600 points") }
                 iconMargin = number
@@ -66,7 +70,7 @@ struct ConkyMacMain {
                 return
             }
             if let path = options.render {
-                try render(to: path, scale: options.scale)
+                try render(to: path, scale: options.scale, theme: options.theme)
                 return
             }
             let application = NSApplication.shared
@@ -80,8 +84,8 @@ struct ConkyMacMain {
         }
     }
 
-    @MainActor private static func render(to path: String, scale: Int) throws {
-        let size = SimpleTheme.size
+    @MainActor private static func render(to path: String, scale: Int, theme: String) throws {
+        let size = theme == "minimalis" ? MinimalisTheme.size : SimpleTheme.size
         guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width) * scale,
                                             pixelsHigh: Int(size.height) * scale, bitsPerSample: 8,
                                             samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -97,7 +101,11 @@ struct ConkyMacMain {
         let flipped = NSGraphicsContext(cgContext: context, flipped: true)
         NSGraphicsContext.current = flipped
         let history: [Double?] = (0..<120).map { index in 0.08 + Double((index * 17) % 23) / 100 }
-        SimpleTheme(fixedTimeZone: true).draw(snapshot: .fixture, history: history, background: true)
+        if theme == "minimalis" {
+            MinimalisTheme(fixedTimeZone: true).draw(snapshot: .fixture, history: history, background: true)
+        } else {
+            SimpleTheme(fixedTimeZone: true).draw(snapshot: .fixture, history: history, background: true)
+        }
         NSGraphicsContext.restoreGraphicsState()
         guard let data = bitmap.representation(using: .png, properties: [:]) else { throw CLIError.render }
         try data.write(to: URL(fileURLWithPath: path), options: .atomic)
