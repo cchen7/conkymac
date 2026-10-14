@@ -84,15 +84,49 @@ static void string_field(lua_State *L, const char *name, char *_Nullable *slot) 
     lua_pop(L, 1);
 }
 
+// Themes are untrusted downloads: binary chunks can corrupt memory, so every loader is text-only.
+static const char *const hardening =
+    "local load, loadfile = load, loadfile\n"
+    "_G.load = function(chunk, name, mode, ...)\n"
+    "  if select('#', ...) > 0 then return load(chunk, name, 't', ...) end\n"
+    "  return load(chunk, name, 't')\n"
+    "end\n"
+    "_G.loadfile = function(name, mode, ...)\n"
+    "  if select('#', ...) > 0 then return loadfile(name, 't', ...) end\n"
+    "  return loadfile(name, 't')\n"
+    "end\n"
+    "_G.dofile = function(name)\n"
+    "  local chunk, message = loadfile(name, 't')\n"
+    "  if not chunk then error(message, 2) end\n"
+    "  return chunk()\n"
+    "end\n"
+    "string.dump = nil\n"
+    "if package then\n"
+    "  package.cpath, package.loadlib = '', nil\n"
+    "  package.searchers = {package.searchers[1], function(module)\n"
+    "    local path, missing = package.searchpath(module, package.path)\n"
+    "    if not path then return '\\n\\t' .. missing end\n"
+    "    local chunk, message = loadfile(path, 't')\n"
+    "    if not chunk then error(('error loading module \\'%s\\' from file \\'%s\\':\\n\\t%s'):format(module, path, message), 2) end\n"
+    "    return chunk, path\n"
+    "  end}\n"
+    "end\n";
+
+static void harden(lua_State *L) {
+    if (luaL_loadbufferx(L, hardening, strlen(hardening), "=ConkyMac sandbox", "t") != LUA_OK) lua_error(L);
+    lua_call(L, 0, 0);
+}
+
 static int load_config(lua_State *L) {
     ConkyLua *self = conky_self(L);
     const char *path = lua_touserdata(L, 1);
     const lua_CFunction libraries[] = {luaopen_base, luaopen_string, luaopen_table, luaopen_math, luaopen_utf8};
     const char *names[] = {LUA_GNAME, LUA_STRLIBNAME, LUA_TABLIBNAME, LUA_MATHLIBNAME, LUA_UTF8LIBNAME};
     for (int index = 0; index < 5; index++) { luaL_requiref(L, names[index], libraries[index], 1); lua_pop(L, 1); }
+    harden(L);
     lua_newtable(L);
     lua_setglobal(L, "conky");
-    if (luaL_loadfile(L, path) != LUA_OK)
+    if (luaL_loadfilex(L, path, "t") != LUA_OK)
         return luaL_error(L, "%s\n(only Lua-syntax conky.config files from Conky 1.10+ are supported)", lua_tostring(L, -1));
     lua_call(L, 0, 0);
     lua_getglobal(L, "conky");
@@ -122,8 +156,6 @@ static void push_resolved(lua_State *L, const char *directory, const char *path,
 static const char *const environment =
     "local fixed = ...\n"
     "for _, name in ipairs({'execute', 'exit', 'remove', 'rename', 'tmpname', 'setlocale'}) do os[name] = nil end\n"
-    "package.cpath, package.loadlib = '', nil\n"
-    "for index = #package.searchers, 3, -1 do package.searchers[index] = nil end\n"
     "package.preload.cairo = function() return {} end\n"
     "package.preload.cairo_xlib = function() return {} end\n"
     "if fixed then\n"
@@ -203,12 +235,13 @@ static int setup_scripts(lua_State *L) {
     lua_setfield(L, 2, "path");
     lua_settop(L, 1);
 
-    if (luaL_loadbuffer(L, environment, strlen(environment), "=ConkyMac environment") != LUA_OK) return lua_error(L);
+    harden(L);
+    if (luaL_loadbufferx(L, environment, strlen(environment), "=ConkyMac environment", "t") != LUA_OK) return lua_error(L);
     if (self->fixed_time >= 0) lua_pushinteger(L, (lua_Integer)self->fixed_time); else lua_pushnil(L);
     lua_call(L, 1, 0);
     for (int index = 1; index <= scripts; index++) {
         lua_rawgeti(L, 1, index);
-        if (luaL_loadfile(L, lua_tostring(L, -1)) != LUA_OK) return lua_error(L);
+        if (luaL_loadfilex(L, lua_tostring(L, -1), "t") != LUA_OK) return lua_error(L);
         lua_call(L, 0, 0);
         lua_pop(L, 1);
     }

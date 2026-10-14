@@ -164,7 +164,7 @@ Lua `longjmp`、panic 与宿主语言栈也是实现边界：脚本入口使用�
 - **状态模型**：每个 `cairo_t` 自带 CTM、源（纯色或渐变）、线宽/端点/连接/斜接/填充规则和最多 16 层 save 栈；路径按 cairo 语义在添加时乘以 CTM 并保存在该 `cairo_t` 的 `CGMutablePath`（与 CG 上下文分离，多个 `cairo_t` 互不干扰）。每次绘制操作在一对 `CGContextSaveGState/RestoreGState` 内完成，中间不会抛出 Lua 错误，基础 CTM 不会失衡。
 - **语义映射**：`cairo_arc` 角度按 cairo 规则归一化后用 `CGPathAddArc`（y 向下坐标中 CG 的逆时针标志即视觉顺时针，与 cairo 相同，单元测试按像素验证）；渐变描边用 `CGContextReplacePathWithStrokedPath` + 裁剪，渐变以 `set_source` 时的 CTM 解释，`EXTEND_PAD` 对应 CG 的前后延伸选项；`*_preserve` 保留路径。`cairo_t`/pattern 为带 `__gc` 的 userdata，显式 destroy 幂等；pattern 被 `cairo_t` 引用时（经 uservalue 表）destroy 后仍可用，与 cairo 引用计数行为一致。
 - **画布**：每个快照在主线程执行一次钩子，画入 sRGB 预乘 alpha 离屏位图（倍率 `max(屏幕倍率, 2)`），各显示器视图只绘制缓存图像。`cairo_xlib_surface_create` 返回指向“当前绘制”的 surface；钩子外绘制会报错。
-- **限制**：每次加载/绘制 250 ms Lua 指令预算、128 MiB Lua 内存上限；不开放 `io`、`debug`、C 模块与 `os.execute` 等。持久 `cairo_t` 若从不 stroke/fill，路径会像 cairo 一样增长，未设上限。
+- **限制**：每次加载/绘制 250 ms Lua 指令预算、128 MiB Lua 内存上限；不开放 `io`、`debug`、C 模块、`string.dump` 与 `os.execute` 等；主题来自不可信下载，所有加载路径（配置、`lua_load`、`load/loadfile/dofile`、`require`）强制文本模式，拒绝可破坏内存的预编译二进制块。持久 `cairo_t` 若从不 stroke/fill，路径会像 cairo 一样增长，未设上限。
 
 ### 后果与兼容性
 

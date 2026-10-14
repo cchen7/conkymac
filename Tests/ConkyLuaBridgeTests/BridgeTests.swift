@@ -7,12 +7,13 @@ private final class Theme {
     let pointer: OpaquePointer
     let context: CGContext
 
-    init(_ script: String, hook: String = "test", budget: Int32 = 250, config: String? = nil) throws {
+    init(_ script: String, hook: String = "test", budget: Int32 = 250, config: String? = nil, files: [String: Data] = [:]) throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("conkymac-bridge-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try script.write(to: folder.appendingPathComponent("test.lua"), atomically: true, encoding: .utf8)
         let conf = config ?? "conky.config = { minimum_width = 100, minimum_height = 80, lua_load = 'test.lua', lua_draw_hook_pre = '\(hook)' }"
         try conf.write(to: folder.appendingPathComponent("test.conf"), atomically: true, encoding: .utf8)
+        for (name, data) in files { try data.write(to: folder.appendingPathComponent(name)) }
         let opened = conky_lua_open(folder.appendingPathComponent("test.conf").path, { _, text in
             String(cString: text) == "${answer}" ? strdup("42") : nil
         }, nil, -1, budget)
@@ -113,3 +114,31 @@ function conky_test()
     #expect(missing.error.contains("draw hook conky_test is not a function"))
     #expect(try Theme("assert(os.execute == nil and io == nil and os.date ~= nil)\nfunction conky_test() end").draw() == 0)
 }
+
+@Test func binaryChunksAreRejectedEverywhere() throws {
+    // A precompiled chunk header; Lua must refuse it before parsing any bytecode.
+    let binary = Data([0x1B, 0x4C, 0x75, 0x61, 0x54, 0x00]) + Data(repeating: 0, count: 32)
+    let script = try Theme("", config: "conky.config = { lua_load = 'binary.lua', lua_draw_hook_pre = 'test' }",
+                           files: ["binary.lua": binary])
+    #expect(script.error.contains("attempt to load a binary chunk"))
+    #expect(try Theme("", files: ["test.conf": binary]).error.contains("attempt to load a binary chunk"))
+    let theme = try Theme("""
+    local header = '\\27Lua' .. string.rep('\\0', 32)
+    local binarypath = assert(package.searchpath('binary', package.path))
+    assert(string.dump == nil)
+    local chunk, message = load(header, 'x', 'b')
+    assert(chunk == nil and message:find('binary chunk'), message)
+    chunk, message = load(header, 'x', 'b', {})
+    assert(chunk == nil and message:find('binary chunk'), message)
+    chunk, message = loadfile(binarypath, 'b')
+    assert(chunk == nil and message:find('binary chunk'), message)
+    assert(not pcall(dofile, binarypath))
+    local ok, failure = pcall(require, 'binary')
+    assert(not ok and failure:find('binary chunk'), failure)
+    assert(package.cpath == '' and package.loadlib == nil and #package.searchers == 2)
+    assert(load('return 1 + 1')() == 2 and load('return x', 'x', 't', {x = 3})() == 3)
+    function conky_test() end
+    """, files: ["binary.lua": binary])
+    #expect(theme.error.isEmpty, "\(theme.error)")
+}
+
