@@ -34,6 +34,8 @@ zsh scripts/validate.sh --gui
 
 前置（一次性）：钥匙串里有且只有一个 “Developer ID Application” 证书（或用 `CONKYMAC_SIGN_IDENTITY` 指定）；用 `xcrun notarytool store-credentials conkymac-notary --apple-id <Apple ID> --team-id <Team ID>` 保存公证凭据（App 专用密码由该命令交互输入，存入钥匙串；`CONKYMAC_NOTARY_PROFILE` 可改名）。`CONKYMAC_SIGN_IDENTITY=-` 只做临时签名预演，不公证。
 
+应用图标源文件是 `Resources/AppIcon.svg`（原创，呼应 Conky logo 的紫色与“C”，未使用其素材）；修改后运行 `zsh scripts/make-icon.sh` 重新生成 `AppIcon.icns`。
+
 应用不需要任何 entitlement：SMC/IOReport 只读、`/bin/ps` 与 Lua 在 Hardened Runtime 下实测可用。
 
 ## Conky Lua 主题（CoreGraphics 版 cairo 子集）

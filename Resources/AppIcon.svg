@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- ConkyMac app icon. Original artwork; macOS grid: 824 pt tile inset 100 pt. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2d2542"/>
+      <stop offset="1" stop-color="#131118"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#dcb8ff"/>
+      <stop offset="1" stop-color="#7a4bd8"/>
+    </linearGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4effd"/>
+      <stop offset="1" stop-color="#b9a6e6"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#tile)"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="184.5" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="3"/>
+  <!-- "C" ring gauge: 270° arc open to the right -->
+  <path d="M 702.9 321.1 A 270 270 0 1 0 702.9 702.9" fill="none" stroke="url(#ring)" stroke-width="88" stroke-linecap="round"/>
+  <!-- CPU history bars -->
+  <g fill="url(#bar)">
+    <rect x="365" y="510" width="34" height="110" rx="17"/>
+    <rect x="417" y="430" width="34" height="190" rx="17"/>
+    <rect x="469" y="480" width="34" height="140" rx="17"/>
+    <rect x="521" y="370" width="34" height="250" rx="17"/>
+    <rect x="573" y="450" width="34" height="170" rx="17"/>
+    <rect x="625" y="500" width="34" height="120" rx="17"/>
+  </g>
+</svg>
