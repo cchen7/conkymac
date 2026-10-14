@@ -67,3 +67,5 @@ zsh scripts/validate.sh --gui
 - [Stats](https://github.com/exelban/stats)：macOS 与 Apple Silicon 采集实现；MIT。
 
 后续复用代码与主题资源时保留相应许可和版权告知。
+
+开销：与 iStat Menus 同时测 180 秒，一块面板可见时 ConkyMac 约 1.4% 单核（另有 ps 子进程约 0.5%），iStat 约 1.3%；面板全被遮挡时采集约 0.17%，不重绘。详见验证记录。

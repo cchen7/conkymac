@@ -25,6 +25,9 @@
 - 数据：进程榜（ps，本进程约 2 ms + 子进程约 26 ms / 3 s）；温度与频率（约 10 ms / 2 s，+0.5% 单核）；网络计数器按 32 位回绕处理。
 - 默认主题 Simple Plus（用户指定：Simple 的日期时钟 + Minimalis 去掉 OS/Kernel 的分区，Simple 视觉）；用户实机确认视觉 OK。
 
+- 发布：`scripts/package-dmg.sh` 已产出 Developer ID 签名、公证并钉票据的 `ConkyMac-0.1.0.dmg`（`~/Local/my-proj-temp/conkymac/dist/`），模拟下载后 Gatekeeper 通过。
+- 性能：被遮挡不重绘、全遮挡时暂停显示类采集；一块面板可见约 1.4%（iStat 约 1.3%）。
+
 ### 未完成
 
 - 手动检查菜单 Hide/Show/Quit/Theme、Spaces 切换、热插拔、休眠/唤醒、Stage Manager。

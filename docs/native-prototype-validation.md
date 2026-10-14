@@ -123,6 +123,26 @@
 - 固定渲染 SHA-256（2×）：Simple `be97672a…`、Simple Plus `c474572c…`、Minimalis `47ed55b4…`、Lua arcs `a501cfc5…`、本地 rings-clock `a28ddf7d…`；重复渲染逐字节一致。
 - Lua/Cairo 分支由子代理在独立 worktree 完成后合并（`0a5a3aa`）。合并后审查发现：时间预算可被脚本的 `pcall` 或 `__gc` 终结器绕过，从而卡死主线程；已修复并加测试（`192b75a`），测试 14 + 8 项通过。
 
+## 与 iStat Menus 的开销对比与优化（2026-10-15）
+
+方法：正常启动的 bundle 与 iStat Menus（菜单栏、helper、root 守护进程）同时运行，用 `ps -o time` 取 180 秒 CPU 时间增量；ConkyMac 的 ps 子进程不计入其进程时间，按次数 × 约 26 ms 另算。单位为单核占比（本机 16 核）。
+
+| 状态 | ConkyMac 本体 | ps 子进程 | iStat 合计 |
+| --- | --- | --- | --- |
+| 优化前（Simple Plus 双屏，每秒全量重绘与采集） | 2.33% | ≈0.9% | 1.32% |
+| 优化后，一块面板可见 | 1.44% | ≈0.5% | 1.32% |
+
+- 采集分项（线程 CPU，30 样本）：频率约 5.5 ms/次、温度约 2.5 ms/次、ps 本进程侧约 4 ms/次、网络约 0.4 ms/次，其余合计 <4 ms/30 s。绘制与合成约占剩余的 18 ms/s。
+- 措施：窗口 `occlusionState` 不可见时跳过重绘、可见时立即补画；所有面板都不可见时暂停 ps、SMC、IOReport（CPU/内存/网络照常）；ps 与温度改为 5 秒，频率 2 秒。`--probe 60`（含子进程）由 0.93 s 降到 0.10 s（约 1.55% → 0.17%）。
+- 两屏共用一张离屏位图的方案实测更差（4.59%）：CPU 同步栅格化抵不过 AppKit 图层的异步绘制，已撤回。
+- 阴影透明层约占 0.3 个百分点（60 秒对照）。不同次测量间有明显波动，以上为单次结果。
+- 用户实机确认：Dell 面板平时被遮挡，“显示桌面”时正常刷新。
+
+## 打包与公证（2026-10-15）
+
+- `scripts/package-dmg.sh`：Developer ID Application（Team `S426CS9PRN`）、Hardened Runtime、无 entitlement；app 与 DMG 分别公证并钉票据。团队首次提交排队超过 30 分钟后 Accepted；之后两次提交各在数分钟内 Accepted，日志无 issue。
+- 加隔离属性模拟下载后：DMG 与其中 app 的 `spctl` 均为 `accepted, source=Notarized Developer ID`，`stapler validate` 通过，权限 755，挂载运行采样正常。
+
 ### 仍未验证
 
 菜单栏 Hide/Show/Quit 与 Theme 切换的实际点击；温度/频率与活动监视器或 `powermetrics` 的对照；Spaces 逐个切换、显示器热插拔/重排、Stage Manager；真实休眠/唤醒；Instruments profile；长时间（小时级）内存曲线；macOS 14 实机。Quit 路径仅经 `--smoke` 结束时的 `NSApp.terminate` 验证。
