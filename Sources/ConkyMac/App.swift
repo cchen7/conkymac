@@ -3,8 +3,9 @@ import ConkyMacCore
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    private var window: NSWindow!
-    private let view = ThemeView()
+    /// Desktop mode: one window per display, top-right. Preview: one window on the primary display.
+    private var windows: [NSWindow] = []
+    private var views: [ThemeView] { windows.compactMap { $0.contentView as? ThemeView } }
     private var statusItem: NSStatusItem!
     private let sampler: SamplingService
     private var generation = 0
@@ -16,9 +17,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let encoder = JSONEncoder()
     private var sampleCount = 0
     private let diagnose: Bool
+    private let iconMargin: CGFloat
 
-    init(preview: Bool, interface: String?, smokeSamples: Int?, diagnose: Bool) {
+    init(preview: Bool, interface: String?, iconMargin: Double, smokeSamples: Int?, diagnose: Bool) {
         self.preview = preview; self.smokeSamples = smokeSamples; self.diagnose = diagnose
+        self.iconMargin = iconMargin
         sampler = SamplingService(interface: interface)
         super.init()
         encoder.dateEncodingStrategy = .iso8601
@@ -26,13 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        window = NSWindow(contentRect: NSRect(origin: .zero, size: SimpleTheme.size),
-                          styleMask: .borderless, backing: .buffered, defer: false)
-        window.title = "ConkyMac — Simple"
-        window.isReleasedWhenClosed = false
-        window.delegate = self
-        window.contentView = view
-        configureWindow()
+        configureWindows()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "waveform.path", accessibilityDescription: "ConkyMac")
         statusItem.button?.toolTip = "ConkyMac"
@@ -52,23 +49,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         observers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.sleeping = false; self?.startSampling() }
         })
+        observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                                                object: nil, queue: .main) { [weak self] _ in
+            // Preview is a normal window the user may have moved; leave it alone.
+            MainActor.assumeIsolated { if let self, !self.hidden, !self.preview { self.configureWindows() } }
+        })
         startSampling()
     }
 
-    private func configureWindow() {
+    private func configureWindows() {
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else { return }
+        let count = preview ? min(1, screens.count) : screens.count
+        while windows.count > count { windows.removeLast().orderOut(nil) }
+        while windows.count < count {
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: SimpleTheme.size),
+                                  styleMask: .borderless, backing: .buffered, defer: false)
+            window.title = "ConkyMac — Simple"
+            window.isReleasedWhenClosed = false
+            window.delegate = self
+            let view = ThemeView()
+            // A display added mid-session starts from the current state, not blank.
+            if let existing = views.first { view.snapshot = existing.snapshot; view.history = existing.history }
+            window.contentView = view
+            windows.append(window)
+        }
+        for (index, (window, screen)) in zip(windows, screens).enumerated() {
+            configure(window, on: screen, isMain: index == 0)
+        }
+    }
+
+    private func configure(_ window: NSWindow, on screen: NSScreen, isMain: Bool) {
+        guard let view = window.contentView as? ThemeView else { return }
         if window.isMiniaturized { window.deminiaturize(nil) }
         view.previewBackground = preview
         window.styleMask = preview ? [.titled, .closable, .miniaturizable] : .borderless
+        window.setContentSize(SimpleTheme.size)
         window.isOpaque = preview
         window.backgroundColor = preview ? NSColor(white: 0.12, alpha: 1) : .clear
         window.hasShadow = preview
         window.ignoresMouseEvents = !preview
         window.level = preview ? .normal : NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) - 1)
         window.collectionBehavior = preview ? [.managed] : [.canJoinAllSpaces, .stationary, .ignoresCycle]
-        if let screen = NSScreen.main {
-            let frame = screen.visibleFrame
-            window.setFrameTopLeftPoint(NSPoint(x: frame.minX + 15, y: frame.maxY - 15))
-        }
+        let frame = screen.visibleFrame
+        // Finder puts desktop icons in a right-hand column on the main display by default.
+        let right = 15 + (isMain ? iconMargin : 0)
+        let x = max(frame.minX + 15, frame.maxX - window.frame.width - right)
+        window.setFrameTopLeftPoint(NSPoint(x: x, y: frame.maxY - 15))
         view.needsDisplay = true
         window.orderFrontRegardless()
         if preview { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
@@ -79,11 +106,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         generation += 1
         let expected = generation
         // Fresh baselines after hide or sleep. Old queued results are discarded.
-        view.history = History(capacity: 120)
+        for view in views { view.history = History(capacity: 120) }
         sampler.start { [weak self] snapshot in
             Task { @MainActor [weak self] in
                 guard let self, self.generation == expected, !self.hidden, !self.sleeping else { return }
-                self.view.update(snapshot)
+                for view in self.views { view.update(snapshot) }
                 self.sampleCount += 1
                 if self.diagnose, let data = try? self.encoder.encode(snapshot) {
                     FileHandle.standardOutput.write(data + Data([10]))
@@ -100,21 +127,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func showPreview() { preview = true; show() }
     private func show() {
         let wasHidden = hidden
-        hidden = false; configureWindow()
+        hidden = false; configureWindows()
         if wasHidden { startSampling() }
     }
-    @objc private func hideMonitor() { hidden = true; window.orderOut(nil); stopSampling() }
+    @objc private func hideMonitor() { hidden = true; windows.forEach { $0.orderOut(nil) }; stopSampling() }
     @objc private func quit() { NSApp.terminate(nil) }
     func windowShouldClose(_ sender: NSWindow) -> Bool { hideMonitor(); return false }
 
     func applicationWillTerminate(_ notification: Notification) {
         stopSampling()
-        for observer in observers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
-        if diagnose {
-            let values = view.drawMilliseconds.sorted()
+        for observer in observers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if diagnose, let window = windows.first {
+            let values = views.flatMap(\.drawMilliseconds).sorted()
             if !values.isEmpty {
                 let p95 = values[min(values.count - 1, Int(Double(values.count - 1) * 0.95))]
-                print("GUI_SUMMARY samples=\(sampleCount) draws=\(values.count) draw_p95_ms=\(String(format: "%.3f", p95)) mouse_passthrough=\(window.ignoresMouseEvents) level=\(window.level.rawValue)")
+                let frames = windows.map { "\(Int($0.frame.minX)),\(Int($0.frame.minY))" }.joined(separator: ";")
+                print("GUI_SUMMARY samples=\(sampleCount) windows=\(windows.count) frames=\(frames) draws=\(values.count) draw_p95_ms=\(String(format: "%.3f", p95)) mouse_passthrough=\(window.ignoresMouseEvents) level=\(window.level.rawValue)")
             }
         }
     }

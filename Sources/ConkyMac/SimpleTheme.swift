@@ -29,10 +29,18 @@ final class SimpleTheme {
 
     func draw(snapshot: Snapshot?, history: [Double?], background: Bool) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState()
+        defer { context.restoreGState() }
         if background {
             NSColor(calibratedWhite: 0.12, alpha: 1).setFill()
             NSRect(origin: .zero, size: Self.size).fill()
+        } else {
+            // Transparent desktop mode: keep text legible on bright wallpapers.
+            // One layer, so the whole panel casts a single shadow pass.
+            context.setShadow(offset: CGSize(width: 0, height: -1), blur: 2, color: NSColor(white: 0, alpha: 0.95).cgColor)
+            context.beginTransparencyLayer(auxiliaryInfo: nil)
         }
+        defer { if !background { context.endTransparencyLayer() } }
         let now = snapshot?.sampledAt ?? Date()
         text(weekday.string(from: now).uppercased(), x: 20, y: 15, size: 25)
         text(date.string(from: now).uppercased(), x: 20, y: 51, size: 17)
