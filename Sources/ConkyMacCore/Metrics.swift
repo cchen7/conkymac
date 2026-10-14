@@ -93,18 +93,29 @@ public struct NetworkTracker {
             return nil
         }
         defer { previous = current }
-        guard let old = previous, old.interface == current.interface,
-              current.time > old.time, current.time - old.time <= 5,
-              current.received >= old.received, current.sent >= old.sent else {
+        let elapsed = current.time - (previous?.time ?? current.time)
+        guard let old = previous, old.interface == current.interface, elapsed > 0, elapsed <= 5,
+              let sentDelta = Self.delta(current.sent, since: old.sent, elapsed: elapsed),
+              let receivedDelta = Self.delta(current.received, since: old.received, elapsed: elapsed) else {
             return Network(interface: current.interface, uploadBytesPerSecond: nil,
                            downloadBytesPerSecond: nil, sessionUploadBytes: upload, sessionDownloadBytes: download)
         }
-        let sent = Double(current.sent - old.sent)
-        let received = Double(current.received - old.received)
+        let sent = Double(sentDelta)
+        let received = Double(receivedDelta)
         upload += sent; download += received
         return Network(interface: current.interface, uploadBytesPerSecond: sent / (current.time - old.time),
                        downloadBytesPerSecond: received / (current.time - old.time),
                        sessionUploadBytes: upload, sessionDownloadBytes: download)
+    }
+
+    /// Unprivileged readers may get byte counters truncated to 32 bits (seen on macOS 27).
+    /// A wrap is accepted only if it implies <= 10 Gbit/s; anything else is a reset, which
+    /// costs one interval instead of adding phantom traffic to the session totals.
+    static func delta(_ current: UInt64, since old: UInt64, elapsed: Double) -> UInt64? {
+        if current >= old { return current - old }
+        guard old <= UInt64(UInt32.max) else { return nil }
+        let wrapped = UInt64(UInt32.max) + 1 - old + current
+        return Double(wrapped) <= min(Double(Int32.max), 1.25e9 * elapsed) ? wrapped : nil
     }
 }
 

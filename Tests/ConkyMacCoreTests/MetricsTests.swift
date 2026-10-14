@@ -34,6 +34,25 @@ import Testing
     #expect(resumed?.sessionDownloadBytes == 1200)
 }
 
+@Test func networkHandles32BitCounterWrap() {
+    var tracker = NetworkTracker()
+    let top = UInt64(UInt32.max)
+    _ = tracker.update(.init(interface: "en0", received: top - 1023, sent: 10, time: 1))
+    let wrapped = tracker.update(.init(interface: "en0", received: 1024, sent: 20, time: 2))
+    #expect(wrapped?.downloadBytesPerSecond == 2048)
+    #expect(wrapped?.sessionDownloadBytes == 2048)
+    // Huge backwards jumps and 64-bit regressions remain resets, not wraps.
+    #expect(tracker.update(.init(interface: "en0", received: 0, sent: 0, time: 3))?.downloadBytesPerSecond == nil)
+    _ = tracker.update(.init(interface: "en0", received: top / 4, sent: 0, time: 4))
+    #expect(tracker.update(.init(interface: "en0", received: 5, sent: 0, time: 5))?.downloadBytesPerSecond == nil)
+    // A reset from above 2 GiB looks like a wrap; the rate cap rejects it.
+    _ = tracker.update(.init(interface: "en0", received: top - (3 << 29), sent: 0, time: 5.5))
+    #expect(tracker.update(.init(interface: "en0", received: 0, sent: 0, time: 6))?.downloadBytesPerSecond == nil)
+    #expect(tracker.update(.init(interface: "en0", received: 0, sent: 0, time: 6.5))?.downloadBytesPerSecond == 0)
+    _ = tracker.update(.init(interface: "en0", received: top + 100, sent: 0, time: 7))
+    #expect(tracker.update(.init(interface: "en0", received: top + 50, sent: 0, time: 7.5))?.downloadBytesPerSecond == nil)
+}
+
 @Test func historyKeepsGapsAndEvictsOldest() {
     var history = History(capacity: 3)
     history.append(0.1); history.append(nil); history.append(0.8); history.append(0.2)

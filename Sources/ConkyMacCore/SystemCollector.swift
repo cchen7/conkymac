@@ -146,7 +146,7 @@ public final class SystemCollector {
         guard let name = primaryInterface() else { return nil }
         let index = if_nametoindex(name)
         guard index != 0 else { return nil }
-        // 64-bit route counters avoid getifaddrs' 32-bit byte counter wrap.
+        // if_data64 fields, but macOS 27 reports them to us truncated to 32 bits and 1 KiB steps.
         var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, Int32(index)]
         var size = 0
         guard sysctl(&mib, UInt32(mib.count), nil, &size, nil, 0) == 0, size > 0, size < 16 * 1024 * 1024 else { return nil }
