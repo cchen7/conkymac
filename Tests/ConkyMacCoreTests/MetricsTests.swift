@@ -79,6 +79,12 @@ import Testing
     #expect(ProcessTable.parse("", limit: 5).isEmpty)
 }
 
+@Test func processTableKillsStalledPs() {
+    // A zero budget expires before ps can finish: the child is killed and reaped, not trusted.
+    #expect(ProcessTable.read(limit: 5, timeout: 0) == nil)
+    #expect(ProcessTable.read(limit: 5)?.isEmpty == false)
+}
+
 @Test func dvfsTableDecodesUnits() {
     func entries(_ values: [UInt32]) -> Data {
         Data(values.flatMap { value in withUnsafeBytes(of: value.littleEndian, Array.init) + [0x20, 0x03, 0, 0] })

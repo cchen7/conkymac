@@ -13,33 +13,50 @@ public struct ProcessSample: Codable, Sendable, Equatable {
 /// %cpu is ps's decaying average; memory is resident size.
 enum ProcessTable {
     /// posix_spawn + waitpid: Foundation's Process.waitUntilExit spins a run loop on this queue.
-    static func read(limit: Int) -> [ProcessSample]? {
+    /// ps gets a fixed C locale (others print "0,0") and no inherited descriptors, and is
+    /// killed if it does not finish within `timeout` so a stall cannot block the sampler.
+    static func read(limit: Int, timeout: Double = 1.5) -> [ProcessSample]? {
         var pipe: [Int32] = [0, 0]
         guard Darwin.pipe(&pipe) == 0 else { return nil }
+        var attributes: posix_spawnattr_t?
+        posix_spawnattr_init(&attributes)
+        defer { posix_spawnattr_destroy(&attributes) }
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT))
         var actions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&actions)
         defer { posix_spawn_file_actions_destroy(&actions) }
         posix_spawn_file_actions_adddup2(&actions, pipe[1], STDOUT_FILENO)
         posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0)
-        posix_spawn_file_actions_addclose(&actions, pipe[0])
-        posix_spawn_file_actions_addclose(&actions, pipe[1])
         let arguments = ["/bin/ps", "-A", "-o", "pid=,%cpu=,rss=,comm="]
         var argv = arguments.map { strdup($0) } + [nil]
-        defer { argv.forEach { free($0) } }
+        var environment = [strdup("LC_ALL=C"), nil]
+        defer { (argv + environment).forEach { free($0) } }
         var pid: pid_t = 0
-        let spawned = posix_spawn(&pid, arguments[0], &actions, nil, &argv, environ)
+        let spawned = posix_spawn(&pid, arguments[0], &actions, &attributes, &argv, &environment)
         close(pipe[1])
-        defer { close(pipe[0]) }
-        guard spawned == 0 else { return nil }
+        guard spawned == 0 else { close(pipe[0]); return nil }
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 65536)
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        var complete = false
         while true {
+            var descriptor = pollfd(fd: pipe[0], events: Int16(POLLIN), revents: 0)
+            let remaining = Int32(max(0, deadline.timeIntervalSinceNow) * 1000)
+            let ready = poll(&descriptor, 1, remaining)
+            if ready < 0 && errno == EINTR { continue }
+            guard ready > 0 else { break } // timeout or poll failure
             let count = Darwin.read(pipe[0], &buffer, buffer.count)
-            if count > 0 { data.append(buffer, count: count) } else if count == 0 || errno != EINTR { break }
+            if count > 0 { data.append(buffer, count: count); continue }
+            if count < 0 && errno == EINTR { continue }
+            complete = count == 0
+            break
         }
+        // Close first so a ps blocked on a full pipe gets EPIPE instead of waiting forever.
+        close(pipe[0])
+        if !complete { kill(pid, SIGKILL) }
         var status: Int32 = 0
         while waitpid(pid, &status, 0) == -1 && errno == EINTR {}
-        guard status == 0 else { return nil }
+        guard complete, status == 0 else { return nil }
         return parse(String(decoding: data, as: UTF8.self), limit: limit)
     }
 
@@ -60,7 +77,7 @@ enum ProcessTable {
             samples.append(ProcessSample(pid: pid, name: (command as NSString).lastPathComponent,
                                          cpuPercent: cpu, memoryBytes: rss * 1024))
         }
-        samples.sort { ($0.cpuPercent, $0.memoryBytes) > ($1.cpuPercent, $1.memoryBytes) }
+        samples.sort { ($0.cpuPercent, $0.memoryBytes, $1.pid) > ($1.cpuPercent, $1.memoryBytes, $0.pid) }
         return Array(samples.prefix(limit))
     }
 }

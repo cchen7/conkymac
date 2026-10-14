@@ -81,8 +81,7 @@ final class SimpleTheme {
             text("MEM", x: 280, y: 774, size: 9, color: secondary, right: true)
             for (index, process) in processes.prefix(5).enumerated() {
                 let y = 798 + CGFloat(index) * 20
-                let name = process.name.count > 18 ? process.name.prefix(17) + "…" : process.name
-                text(name, x: 44, y: y, size: 10)
+                text(fitted(process.name, size: 10, width: 124), x: 44, y: y, size: 10)
                 text(String(format: "%.1f%%", process.cpuPercent), x: 212, y: y, size: 10, right: true)
                 text(bytes(process.memoryBytes), x: 280, y: y, size: 10, right: true)
             }
@@ -110,6 +109,18 @@ final class SimpleTheme {
         context.textPosition = .zero
         CTLineDraw(line, context)
         context.restoreGState()
+    }
+
+    /// Truncates by rendered width, so wide (e.g. CJK) names cannot run into the CPU column.
+    private func fitted(_ string: String, size: CGFloat, width: CGFloat) -> String {
+        let font = NSFont(name: fontName, size: size) ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        func measure(_ value: String) -> CGFloat {
+            CTLineGetTypographicBounds(CTLineCreateWithAttributedString(NSAttributedString(string: value, attributes: [.font: font])), nil, nil, nil)
+        }
+        guard measure(string) > width else { return string }
+        var characters = Array(string)
+        while !characters.isEmpty && measure(String(characters) + "…") > width { characters.removeLast() }
+        return String(characters) + "…"
     }
 
     private func row(_ label: String, value: String?, icon: String, y: CGFloat, size: CGFloat = 12, valueSize: CGFloat = 12) {
