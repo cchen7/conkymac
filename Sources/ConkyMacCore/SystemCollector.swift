@@ -21,6 +21,8 @@ public final class SystemCollector {
     private var battery: Battery?
     private var slowIssues: [String] = []
     private var nextSlowSample: Double = 0
+    private var processes: [ProcessSample]?
+    private var nextProcessSample: Double = 0
 
     public init(interface: String? = nil) {
         requestedInterface = interface
@@ -57,9 +59,15 @@ public final class SystemCollector {
             nextSlowSample = started + 30
         }
         issues += slowIssues
+        // ps costs ~20 ms of system time per run, so refresh the ranking every 3 seconds.
+        if started >= nextProcessSample {
+            processes = ProcessTable.read(limit: 5)
+            nextProcessSample = started + 3
+        }
+        if processes == nil { issues.append("Processes: /bin/ps unavailable") }
         return Snapshot(sequence: sequence, sampledAt: now, systemVersion: systemVersion,
                         uptime: bootDate.map { max(0, now.timeIntervalSince($0)) }, cpuFraction: cpu,
-                        memory: memory, storage: storage, battery: battery, network: network,
+                        memory: memory, storage: storage, battery: battery, network: network, processes: processes,
                         issues: issues, collectionMilliseconds: (Self.continuousSeconds() - started) * 1000)
     }
 
@@ -67,6 +75,7 @@ public final class SystemCollector {
         previousCPU = nil; previousTime = nil
         networkTracker.resetBaseline()
         nextSlowSample = 0
+        nextProcessSample = 0
     }
 
     private static let secondsPerTick: Double = {

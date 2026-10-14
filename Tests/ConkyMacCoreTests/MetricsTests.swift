@@ -62,3 +62,18 @@ import Testing
     #expect(history.count == 3)
     #expect(history.values == [0.5, 0.5, 0.5])
 }
+
+@Test func processTableParsesAndRanks() {
+    let output = """
+        1   0.1  29120 /sbin/launchd
+      407  13.1 627000 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer
+     3760   3.4 411000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome Helper (Renderer)
+     3761   3.4 999999 /usr/libexec/tie
+    garbage line
+       12   0.0      0
+    """
+    let top = ProcessTable.parse(output, limit: 3)
+    #expect(top.map(\.name) == ["WindowServer", "tie", "Google Chrome Helper (Renderer)"])
+    #expect(top[0].pid == 407 && top[0].memoryBytes == 627000 * 1024)
+    #expect(ProcessTable.parse("", limit: 5).isEmpty)
+}

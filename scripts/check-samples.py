@@ -24,6 +24,12 @@ for before, after in zip(rows, rows[1:]):
     for key in ("sessionUploadBytes", "sessionDownloadBytes"):
         assert network[key] >= before["network"][key], "Session total went backwards"
     assert after["collectionMilliseconds"] >= 0
+    processes = after.get("processes")
+    if processes is not None:
+        assert 0 < len(processes) <= 5, "Process ranking should hold 1...5 entries"
+        cpus = [item["cpuPercent"] for item in processes]
+        assert cpus == sorted(cpus, reverse=True), "Processes not ranked by CPU"
+        assert all(item["name"] and item["memoryBytes"] >= 0 for item in processes)
 assert rows[0]["storage"]["sampledAt"] == rows[1]["storage"]["sampledAt"], "Slow sample was repeated at 1 Hz"
 issues = sorted({issue for row in rows for issue in row["issues"]})
 if issues:

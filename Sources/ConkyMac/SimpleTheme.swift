@@ -4,7 +4,7 @@ import CoreText
 
 @MainActor
 final class SimpleTheme {
-    static let size = NSSize(width: 300, height: 790)
+    static let size = NSSize(width: 300, height: 912)
     private let foreground = NSColor(white: 0.96, alpha: 1)
     private let secondary = NSColor(white: 0.68, alpha: 1)
     private let accent = NSColor(red: 0.83, green: 0.66, blue: 1, alpha: 1)
@@ -73,6 +73,19 @@ final class SimpleTheme {
         row("DOWNLOAD", value: rate(snapshot?.network?.downloadBytesPerSecond), icon: "arrow.down", y: 680, size: 10, valueSize: 10)
         row("SESSION UP", value: snapshot?.network.map { bytes($0.sessionUploadBytes) } ?? "N/A", icon: "arrow.up.doc", y: 706, size: 10, valueSize: 10)
         row("SESSION DOWN", value: snapshot?.network.map { bytes($0.sessionDownloadBytes) } ?? "N/A", icon: "arrow.down.doc", y: 732, size: 10, valueSize: 10)
+
+        row("PROCESSES", value: snapshot?.processes == nil ? "N/A" : nil, icon: "list.bullet.rectangle", y: 772)
+        if let processes = snapshot?.processes {
+            text("CPU", x: 212, y: 774, size: 9, color: secondary, right: true)
+            text("MEM", x: 280, y: 774, size: 9, color: secondary, right: true)
+            for (index, process) in processes.prefix(5).enumerated() {
+                let y = 798 + CGFloat(index) * 20
+                let name = process.name.count > 18 ? process.name.prefix(17) + "…" : process.name
+                text(name, x: 44, y: y, size: 10)
+                text(String(format: "%.1f%%", process.cpuPercent), x: 212, y: y, size: 10, right: true)
+                text(bytes(process.memoryBytes), x: 280, y: y, size: 10, right: true)
+            }
+        }
     }
 
     private func text(_ string: String, x: CGFloat, y: CGFloat, size: CGFloat, color: NSColor? = nil, right: Bool = false) {
