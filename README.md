@@ -16,9 +16,9 @@ open /private/tmp/conkymac-build/ConkyMac.app --args --preview
 zsh scripts/validate.sh --gui
 ```
 
-直接启动应用默认进入透明桌面模式，菜单栏提供 Preview、Show on Desktop、Hide 和 Quit。关闭预览窗口只隐藏并停止采集；Quit 才退出。当前会话没有安装或常驻运行该应用。
+直接启动应用默认进入透明桌面模式：每块显示器右上角各一个面板，出现在所有 Spaces，触控板“显示桌面”手势时保持可见；主显示器额外左移 120pt 避开 Finder 桌面图标列。菜单栏提供 Preview、Show on Desktop、Hide 和 Quit。关闭预览窗口只隐藏并停止采集；Quit 才退出。当前会话没有安装或常驻运行该应用。
 
-命令行选项：`--probe 5` 输出真实样本，`--render /tmp/simple.png` 输出固定输入 PNG，`--scale 1|2` 指定像素倍率，`--smoke 15` 运行 GUI 后自动退出。`--interface en0` 可指定网络接口；默认使用系统主接口，可能是 VPN。`SESSION UP/DOWN` 只累计应用有效采样区间的所选接口流量，暂停区间不补算。
+命令行选项：`--probe 5` 输出真实样本，`--render /tmp/simple.png` 输出固定输入 PNG，`--scale 1|2` 指定像素倍率，`--smoke 15` 运行 GUI 后自动退出，`--icon-margin N` 调整主显示器为桌面图标预留的右边距（0–600pt，默认 120）。`--interface en0` 可指定网络接口；默认使用系统主接口，可能是 VPN。`SESSION UP/DOWN` 只累计应用有效采样区间的所选接口流量，暂停区间不补算。
 
 `CONKYMAC_BUILD_DIR` 可指定隔离构建目录。`validate.sh` 遇到指标不可用会以非零状态结束，不能将沙箱里的部分成功当成完整通过。Lua/Cairo、天气、日历、GPU、进程榜、主题转换器和完整桌面行为矩阵仍待实现。
 
