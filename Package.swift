@@ -10,7 +10,7 @@ let package = Package(
         .target(name: "ConkyLuaBridge", dependencies: ["CLua"], cSettings: [.define("LUA_USE_MACOSX")],
                 linkerSettings: [.linkedFramework("CoreGraphics")]),
         .target(name: "ConkyMacCore"),
-        .executableTarget(name: "ConkyMac", dependencies: ["ConkyMacCore"]),
+        .executableTarget(name: "ConkyMac", dependencies: ["ConkyMacCore", "ConkyLuaBridge"]),
         .testTarget(name: "ConkyMacCoreTests", dependencies: ["ConkyMacCore"]),
         .testTarget(name: "ConkyLuaBridgeTests", dependencies: ["ConkyLuaBridge"])
     ]

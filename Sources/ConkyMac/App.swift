@@ -2,7 +2,7 @@ import AppKit
 import ConkyMacCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
     /// Desktop mode: one window per display, top-right. Preview: one window on the primary display.
     private var windows: [NSWindow] = []
     private var views: [ThemeView] { windows.compactMap { $0.contentView as? ThemeView } }
@@ -18,11 +18,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var sampleCount = 0
     private let diagnose: Bool
     private let iconMargin: CGFloat
+    private static let themeKey = "ThemePath"
+    /// nil is the built-in Simple theme; otherwise a Conky Lua .conf path.
+    private var themePath: String?
+    private var renderer: ThemeRenderer
 
-    init(preview: Bool, interface: String?, iconMargin: Double, smokeSamples: Int?, diagnose: Bool) {
+    init(preview: Bool, interface: String?, iconMargin: Double, smokeSamples: Int?, diagnose: Bool, theme: String?) {
         self.preview = preview; self.smokeSamples = smokeSamples; self.diagnose = diagnose
         self.iconMargin = iconMargin
         sampler = SamplingService(interface: interface)
+        // --theme ("" = Simple) wins; a remembered theme that has since been deleted falls back to Simple.
+        let saved = UserDefaults.standard.string(forKey: Self.themeKey).flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil }
+        if let theme { themePath = theme.isEmpty ? nil : theme } else { themePath = saved }
+        renderer = Self.makeRenderer(themePath, diagnose: diagnose)
         super.init()
         encoder.dateEncodingStrategy = .iso8601
     }
@@ -41,6 +49,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let item = menu.addItem(withTitle: title, action: action, keyEquivalent: key)
             item.target = self
         }
+        let themes = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
+        themes.submenu = NSMenu(title: "Theme")
+        themes.submenu?.delegate = self
+        menu.insertItem(themes, at: 2)
         statusItem.menu = menu
         let center = NSWorkspace.shared.notificationCenter
         observers.append(center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
@@ -63,12 +75,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let count = preview ? min(1, screens.count) : screens.count
         while windows.count > count { windows.removeLast().orderOut(nil) }
         while windows.count < count {
-            let window = NSWindow(contentRect: NSRect(origin: .zero, size: SimpleTheme.size),
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: renderer.size),
                                   styleMask: .borderless, backing: .buffered, defer: false)
-            window.title = "ConkyMac — Simple"
             window.isReleasedWhenClosed = false
             window.delegate = self
-            let view = ThemeView()
+            let view = ThemeView(renderer: renderer)
             // A display added mid-session starts from the current state, not blank.
             if let existing = views.first { view.snapshot = existing.snapshot; view.history = existing.history }
             window.contentView = view
@@ -84,7 +95,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if window.isMiniaturized { window.deminiaturize(nil) }
         view.previewBackground = preview
         window.styleMask = preview ? [.titled, .closable, .miniaturizable] : .borderless
-        window.setContentSize(SimpleTheme.size)
+        window.title = "ConkyMac — \(renderer.name)"
+        window.setContentSize(renderer.size)
         window.isOpaque = preview
         window.backgroundColor = preview ? NSColor(white: 0.12, alpha: 1) : .clear
         window.hasShadow = preview
@@ -123,6 +135,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func stopSampling() { generation += 1; sampler.stop() }
+
+    private static func makeRenderer(_ path: String?, diagnose: Bool) -> ThemeRenderer {
+        path.map { LuaTheme(path: $0, diagnostics: diagnose) } ?? SimpleTheme()
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        var paths: [String?] = [nil] + ThemeLibrary.scan()
+        if let themePath, !paths.contains(themePath) { paths.append(themePath) }
+        for path in paths {
+            let item = menu.addItem(withTitle: path.map(ThemeLibrary.displayName) ?? "Simple", action: #selector(selectTheme(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = path ?? ""
+            item.toolTip = path
+            item.state = path == themePath ? .on : .off
+        }
+    }
+
+    @objc private func selectTheme(_ sender: NSMenuItem) {
+        let path = (sender.representedObject as? String).flatMap { $0.isEmpty ? nil : $0 }
+        UserDefaults.standard.set(path ?? "", forKey: Self.themeKey)
+        guard path != themePath else { return }
+        themePath = path
+        renderer = Self.makeRenderer(path, diagnose: diagnose)
+        for view in views { view.renderer = renderer }
+        if !hidden { configureWindows() }
+    }
     @objc private func showDesktop() { preview = false; show() }
     @objc private func showPreview() { preview = true; show() }
     private func show() {
@@ -145,7 +184,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             if !values.isEmpty {
                 let p95 = values[min(values.count - 1, Int(Double(values.count - 1) * 0.95))]
                 let frames = windows.map { "\(Int($0.frame.minX)),\(Int($0.frame.minY))" }.joined(separator: ";")
-                print("GUI_SUMMARY samples=\(sampleCount) windows=\(windows.count) frames=\(frames) draws=\(values.count) draw_p95_ms=\(String(format: "%.3f", p95)) mouse_passthrough=\(window.ignoresMouseEvents) level=\(window.level.rawValue)")
+                var lua = ""
+                if let theme = renderer as? LuaTheme {
+                    let times = theme.luaMilliseconds.sorted()
+                    let p50 = times.isEmpty ? 0 : times[times.count / 2]
+                    let p95 = times.isEmpty ? 0 : times[min(times.count - 1, Int(Double(times.count - 1) * 0.95))]
+                    lua = " lua_evals=\(times.count) lua_p50_ms=\(String(format: "%.3f", p50)) lua_p95_ms=\(String(format: "%.3f", p95)) lua_error=\(theme.failure != nil)"
+                }
+                print("GUI_SUMMARY theme=\(renderer.name) samples=\(sampleCount) windows=\(windows.count) frames=\(frames) draws=\(values.count) draw_p95_ms=\(String(format: "%.3f", p95)) mouse_passthrough=\(window.ignoresMouseEvents) level=\(window.level.rawValue)\(lua)")
             }
         }
     }

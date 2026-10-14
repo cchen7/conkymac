@@ -3,8 +3,10 @@ import ConkyMacCore
 import CoreText
 
 @MainActor
-final class SimpleTheme {
+final class SimpleTheme: ThemeRenderer {
     static let size = NSSize(width: 300, height: 790)
+    var size: NSSize { Self.size }
+    let name = "Simple"
     private let foreground = NSColor(white: 0.96, alpha: 1)
     private let secondary = NSColor(white: 0.68, alpha: 1)
     private let accent = NSColor(red: 0.83, green: 0.66, blue: 1, alpha: 1)
@@ -161,15 +163,15 @@ final class SimpleTheme {
 @MainActor
 final class ThemeView: NSView {
     override var isFlipped: Bool { true }
-    let renderer: SimpleTheme
+    var renderer: ThemeRenderer { didSet { needsDisplay = true } }
     var snapshot: Snapshot?
     var history = History(capacity: 120)
     var previewBackground = false
     private(set) var drawMilliseconds: [Double] = []
 
-    init(fixed: Bool = false) {
-        renderer = SimpleTheme(fixedTimeZone: fixed)
-        super.init(frame: NSRect(origin: .zero, size: SimpleTheme.size))
+    init(renderer: ThemeRenderer) {
+        self.renderer = renderer
+        super.init(frame: NSRect(origin: .zero, size: renderer.size))
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("ConkyMac system monitor")
