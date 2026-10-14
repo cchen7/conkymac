@@ -136,7 +136,7 @@ final class SimpleTheme: ThemeRenderer {
                     text(String(format: "%.1f%%", byCPU[index].cpuPercent), x: 146, y: y, size: 10, right: true)
                 }
                 if index < byMemory.count {
-                    text(fitted(byMemory[index].name, size: 10, width: 66), x: 158, y: y, size: 10)
+                    text(fitted(byMemory[index].name, size: 10, width: 60), x: 158, y: y, size: 10)
                     text(bytes(byMemory[index].memoryBytes), x: 280, y: y, size: 10, right: true)
                 }
             }

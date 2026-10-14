@@ -25,7 +25,11 @@ static void *allocate(void *ud, void *ptr, size_t osize, size_t nsize) {
 static void budget_hook(lua_State *L, lua_Debug *ar) {
     (void)ar;
     ConkyLua *self = conky_self(L);
-    if (now_ms() > self->deadline) luaL_error(L, "script exceeded the %d ms time budget", self->budget_ms);
+    if (now_ms() <= self->deadline) return;
+    // Fire on every instruction from now on, so a script's own pcall/coroutine cannot absorb
+    // the error and keep looping; protected_call restores the normal interval.
+    lua_sethook(L, budget_hook, LUA_MASKCOUNT, 1);
+    luaL_error(L, "script exceeded the %d ms time budget", self->budget_ms);
 }
 
 static lua_State *new_state(ConkyLua *self) {
@@ -53,6 +57,7 @@ static int protected_call(ConkyLua *self, lua_State *L, lua_CFunction function, 
     lua_pushcfunction(L, function);
     lua_pushlightuserdata(L, argument);
     self->deadline = now_ms() + self->budget_ms;
+    lua_sethook(L, budget_hook, LUA_MASKCOUNT, 10000);
     int status = lua_pcall(L, 1, 0, 1);
     if (status != LUA_OK) {
         const char *message = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "unknown Lua error";
@@ -74,7 +79,7 @@ static int number_field(lua_State *L, const char *name, int fallback) {
     int isnum = 0;
     lua_Number value = lua_tonumberx(L, -1, &isnum);
     lua_pop(L, 1);
-    if (!isnum) return fallback;
+    if (!isnum || value != value) return fallback; // NaN would make the (int) cast undefined
     return value < 16 ? 16 : value > 4096 ? 4096 : (int)value;
 }
 
@@ -101,6 +106,12 @@ static const char *const hardening =
     "  return chunk()\n"
     "end\n"
     "string.dump = nil\n"
+    // Finalizers run with hooks off, so a looping __gc would escape the time budget.
+    "local setmetatable = setmetatable\n"
+    "_G.setmetatable = function(t, mt)\n"
+    "  if type(mt) == 'table' and rawget(mt, '__gc') ~= nil then error('__gc metamethods are not allowed in themes', 2) end\n"
+    "  return setmetatable(t, mt)\n"
+    "end\n"
     "if package then\n"
     "  package.cpath, package.loadlib = '', nil\n"
     "  package.searchers = {package.searchers[1], function(module)\n"
@@ -257,7 +268,7 @@ static int conky_parse(lua_State *L) {
     const char *text = luaL_checkstring(L, 1);
     ConkyLua *self = conky_self(L);
     luaL_checkstack(L, 2, NULL);
-    char *result = self->parse(self->parse_context, text);
+    char *result = self->parse ? self->parse(self->parse_context, text) : NULL;
     if (!result) { lua_pushliteral(L, ""); return 1; }
     // Copy under a nested pcall so an out-of-memory error cannot leak the malloc'd result.
     lua_pushcfunction(L, push_result);
@@ -347,6 +358,8 @@ int conky_lua_draw(ConkyLua *self, CGContextRef context) {
 
 void conky_lua_close(ConkyLua *self) {
     if (!self) return;
+    // Finalizers may still call conky_parse while closing; never reach the Swift owner then.
+    self->parse = NULL;
     if (self->L) lua_close(self->L);
     CGColorSpaceRelease(self->space);
     free(self->conf_dir); free(self->lua_load); free(self->hook_pre); free(self->hook_post);

@@ -50,7 +50,8 @@ enum ThemeLibrary {
     }
 }
 
-/// Owns the C bridge state. Closing it runs Lua finalizers only; it never calls back into Swift.
+/// Owns the C bridge state. Closing clears the conky_parse callback first, so finalizers
+/// that run during close cannot call back into Swift.
 private final class LuaHandle {
     let pointer: OpaquePointer?
     init(_ pointer: OpaquePointer?) { self.pointer = pointer }

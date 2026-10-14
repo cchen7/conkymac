@@ -102,7 +102,9 @@ static void release_context(Context *c) {
 }
 
 static int context_gc(lua_State *L) {
-    release_context(luaL_checkudata(L, 1, CONTEXT));
+    Context *c = luaL_checkudata(L, 1, CONTEXT);
+    release_context(c);
+    c->destroyed = true; // a resurrected cairo_t must not reach CGPath calls with a NULL path
     return 0;
 }
 
@@ -465,16 +467,16 @@ static int l_paint(lua_State *L) { return paint(L, 1); }
 static int l_paint_with_alpha(lua_State *L) { return paint(L, luaL_checknumber(L, 2)); }
 
 void conky_cairo_open(lua_State *L) {
-    luaL_newmetatable(L, SURFACE);
-    lua_pop(L, 1);
-    luaL_newmetatable(L, CONTEXT);
-    lua_pushcfunction(L, context_gc);
-    lua_setfield(L, -2, "__gc");
-    lua_pop(L, 1);
-    luaL_newmetatable(L, PATTERN);
-    lua_pushcfunction(L, pattern_gc);
-    lua_setfield(L, -2, "__gc");
-    lua_pop(L, 1);
+    // Locked: scripts may not read or replace these metatables (e.g. install a Lua __gc).
+    const char *names[] = {SURFACE, CONTEXT, PATTERN};
+    const lua_CFunction finalizers[] = {NULL, context_gc, pattern_gc};
+    for (int index = 0; index < 3; index++) {
+        luaL_newmetatable(L, names[index]);
+        if (finalizers[index]) { lua_pushcfunction(L, finalizers[index]); lua_setfield(L, -2, "__gc"); }
+        lua_pushliteral(L, "locked");
+        lua_setfield(L, -2, "__metatable");
+        lua_pop(L, 1);
+    }
 
     const luaL_Reg functions[] = {
         {"cairo_xlib_surface_create", surface_create}, {"cairo_surface_destroy", surface_destroy},

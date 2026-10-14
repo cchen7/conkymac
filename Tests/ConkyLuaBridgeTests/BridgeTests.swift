@@ -91,7 +91,7 @@ function conky_test()
     #expect(theme.draw() != 0)
     #expect(theme.error.contains("first frame fails"))
     #expect(theme.draw() != 0)
-    #expect(theme.error.contains("cairo_t used after cairo_destroy"))
+    #expect(theme.error.contains("cairo_t used after cairo_destroy"), "\(theme.error)")
 }
 
 @Test func runawayScriptsHitTheTimeBudget() throws {
@@ -100,6 +100,22 @@ function conky_test()
     #expect(theme.draw() != 0)
     #expect(theme.error.contains("time budget"))
     #expect(Date().timeIntervalSince(start) < 1)
+}
+
+@Test func scriptsCannotAbsorbTheTimeBudget() throws {
+    let caught = try Theme("function conky_test() while true do pcall(function() while true do end end) end end", budget: 50)
+    let start = Date()
+    #expect(caught.draw() != 0 && caught.error.contains("time budget"))
+    #expect(Date().timeIntervalSince(start) < 1)
+    // The normal check interval returns for the next frame.
+    let recovered = try Theme("calls = 0\nfunction conky_test() calls = calls + 1; if calls == 1 then while true do pcall(function() while true do end end) end end end", budget: 50)
+    #expect(recovered.draw() != 0)
+    #expect(recovered.draw() == 0)
+    // Finalizers run without hooks, so Lua __gc is refused and bridge metatables are locked.
+    let finalizer = try Theme("function conky_test() setmetatable({}, {__gc = function() end}) end")
+    #expect(finalizer.draw() != 0 && finalizer.error.contains("__gc"))
+    let locked = try Theme(prelude + "  assert(getmetatable(cr) == 'locked')\n  assert(not pcall(setmetatable, cr, {}))\n  cairo_destroy(cr)\nend")
+    #expect(locked.draw() == 0, "\(locked.error)")
 }
 
 @Test func loadErrorsAreReported() throws {
