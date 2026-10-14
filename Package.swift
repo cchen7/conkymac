@@ -7,8 +7,11 @@ let package = Package(
     products: [.executable(name: "ConkyMac", targets: ["ConkyMac"])],
     targets: [
         .target(name: "CLua", exclude: ["LICENSE"], cSettings: [.define("LUA_USE_MACOSX")]),
+        .target(name: "ConkyLuaBridge", dependencies: ["CLua"], cSettings: [.define("LUA_USE_MACOSX")],
+                linkerSettings: [.linkedFramework("CoreGraphics")]),
         .target(name: "ConkyMacCore"),
         .executableTarget(name: "ConkyMac", dependencies: ["ConkyMacCore"]),
-        .testTarget(name: "ConkyMacCoreTests", dependencies: ["ConkyMacCore"])
+        .testTarget(name: "ConkyMacCoreTests", dependencies: ["ConkyMacCore"]),
+        .testTarget(name: "ConkyLuaBridgeTests", dependencies: ["ConkyLuaBridge"])
     ]
 )
