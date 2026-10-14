@@ -59,8 +59,9 @@ final class SimpleTheme {
 
         row("CPU", value: snapshot?.cpuFraction.map { "\(Int(($0 * 100).rounded()))%" } ?? "N/A", icon: "cpu", y: 327)
         graph(history, in: CGRect(x: 20, y: 354, width: 260, height: 28), context: context)
-        row("FREQUENCY", value: "N/A", icon: "waveform", y: 399, valueSize: 11)
-        row("TEMPERATURE", value: "N/A", icon: "thermometer.medium", y: 431, valueSize: 11)
+        row("FREQUENCY", value: frequency(snapshot?.frequency), icon: "waveform", y: 399, valueSize: 11)
+        row("TEMPERATURE", value: snapshot?.temperatureCelsius.map { String(format: "%.0f°C", $0) } ?? "N/A",
+            icon: "thermometer.medium", y: 431, valueSize: 11)
 
         row("RAM", value: capacity(snapshot?.memory), icon: "memorychip", y: 474, valueSize: 11)
         bar(fraction: snapshot?.memory?.fraction, y: 501)
@@ -163,6 +164,11 @@ final class SimpleTheme {
     private func capacity(_ value: Capacity?) -> String {
         guard let value else { return "N/A" }
         return String(format: "%.1f/%.0f GiB", value.used / pow(1024, 3), value.total / pow(1024, 3))
+    }
+    private func frequency(_ value: CPUFrequency?) -> String {
+        guard let value else { return "N/A" }
+        func ghz(_ megahertz: Double?) -> String { megahertz.map { String(format: "%.2f", $0 / 1000) } ?? "idle" }
+        return "P \(ghz(value.performanceMHz)) · E \(ghz(value.efficiencyMHz)) GHz"
     }
     private func rate(_ value: Double?) -> String { value.map { bytes($0) + "/s" } ?? "N/A" }
     private func uptime(_ seconds: Double) -> String {

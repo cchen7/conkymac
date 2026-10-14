@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import ConkyMacCore
 
@@ -76,4 +77,35 @@ import Testing
     #expect(top.map(\.name) == ["WindowServer", "tie", "Google Chrome Helper (Renderer)"])
     #expect(top[0].pid == 407 && top[0].memoryBytes == 627000 * 1024)
     #expect(ProcessTable.parse("", limit: 5).isEmpty)
+}
+
+@Test func dvfsTableDecodesUnits() {
+    func entries(_ values: [UInt32]) -> Data {
+        Data(values.flatMap { value in withUnsafeBytes(of: value.littleEndian, Array.init) + [0x20, 0x03, 0, 0] })
+    }
+    // M4+: kHz, with a zero padding entry dropped.
+    #expect(SensorMath.dvfsTable(entries([1_020_000, 2_592_000, 0])) == [1020, 2592])
+    // M1-M3: Hz.
+    #expect(SensorMath.dvfsTable(entries([600_000_000, 3_228_000_000])) == [600, 3228])
+    #expect(SensorMath.dvfsTable(Data([1, 2, 3])).isEmpty)
+}
+
+@Test func clusterFrequencyWeightsActiveResidency() {
+    let table: [Double] = [1000, 2000, 3000]
+    let states: [(name: String, residency: Int64)] = [("DOWN", 50), ("IDLE", 900), ("V0P6", 10), ("V1P0", 0), ("V2P0", 30)]
+    let result = SensorMath.cluster(states: states, table: table)
+    #expect(result?.megahertz == 2500 && result?.active == 40)
+    // A state list that no longer lines up with the table is rejected, not guessed.
+    #expect(SensorMath.cluster(states: Array(states.dropLast()), table: table) == nil)
+    let idle = SensorMath.cluster(states: [("IDLE", 1000), ("V0P6", 0), ("V1P0", 0), ("V2P0", 0)], table: table)
+    #expect(idle?.active == 0)
+    #expect(SensorMath.merge([(4000, 30), (1000, 10)]) == 3250)
+    #expect(SensorMath.merge([(0, 0)]) == nil)
+}
+
+@Test func temperatureKeysAndHottest() {
+    #expect(["Tpx8", "TpxD", "Tex0", "Tex3"].allSatisfy(SensorMath.isCPUTemperatureKey))
+    #expect(!["Tp01", "Te05", "Tp1i", "Tp2X", "Tg1U"].contains(where: SensorMath.isCPUTemperatureKey))
+    #expect(SensorMath.hottest([40, 46.4, 43.1, -4, 130]) == 46.4)
+    #expect(SensorMath.hottest([1.5, 0]) == nil)
 }

@@ -24,6 +24,12 @@ for before, after in zip(rows, rows[1:]):
     for key in ("sessionUploadBytes", "sessionDownloadBytes"):
         assert network[key] >= before["network"][key], "Session total went backwards"
     assert after["collectionMilliseconds"] >= 0
+    temperature = after.get("temperatureCelsius")
+    assert temperature is None or 10 <= temperature <= 120, "CPU temperature outside 10...120 C"
+    for value in (after.get("frequency") or {}).values():
+        assert 300 <= value <= 6000, "Cluster frequency outside 300...6000 MHz"
+    cores = after.get("coreFractions")
+    assert cores is None or all(0 <= value <= 1 for value in cores)
     processes = after.get("processes")
     if processes is not None:
         assert 0 < len(processes) <= 5, "Process ranking should hold 1...5 entries"

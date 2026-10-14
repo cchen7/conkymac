@@ -14,6 +14,11 @@ public final class SystemCollector {
     private let requestedInterface: String?
     private let bootDate: Date?
     private var previousCPU: CPUTicks?
+    private var previousCores: [CPUTicks]?
+    private let sensors = SensorCollector()
+    private var temperature: Double?
+    private var frequency: CPUFrequency?
+    private var nextSensorSample: Double = 0
     private var previousTime: Double?
     private var networkTracker = NetworkTracker()
     private var sequence: UInt64 = 0
@@ -44,7 +49,13 @@ public final class SystemCollector {
         if let ticks, let old = previousCPU, let time = previousTime, started - time <= 5 {
             cpu = ticks.fraction(since: old)
         }
-        previousCPU = ticks; previousTime = started
+        let cores = readCores()
+        var coreFractions: [Double]?
+        if cpu != nil, let cores, let old = previousCores, old.count == cores.count {
+            let values = zip(cores, old).compactMap { $0.fraction(since: $1) }
+            if values.count == cores.count { coreFractions = values }
+        }
+        previousCPU = ticks; previousCores = cores; previousTime = started
         if ticks == nil { issues.append("CPU: host_statistics unavailable") }
         let memory = readMemory(at: now)
         if memory == nil { issues.append("Memory: host_statistics64 unavailable") }
@@ -65,17 +76,29 @@ public final class SystemCollector {
             nextProcessSample = started + 3
         }
         if processes == nil { issues.append("Processes: /bin/ps unavailable") }
+        // IOReport (~5 ms) and SMC (~4 ms) reads every 2 s; frequency averages over that window.
+        if started >= nextSensorSample {
+            frequency = sensors.frequency()
+            temperature = sensors.temperature()
+            nextSensorSample = started + 2
+        }
+        if let issue = sensors.frequencyIssue { issues.append(issue) }
+        if temperature == nil { issues.append("Temperature: SMC core sensors unavailable") }
         return Snapshot(sequence: sequence, sampledAt: now, systemVersion: systemVersion,
                         uptime: bootDate.map { max(0, now.timeIntervalSince($0)) }, cpuFraction: cpu,
+                        coreFractions: coreFractions, temperatureCelsius: temperature, frequency: frequency,
                         memory: memory, storage: storage, battery: battery, network: network, processes: processes,
                         issues: issues, collectionMilliseconds: (Self.continuousSeconds() - started) * 1000)
     }
 
     public func resetBaselines() {
-        previousCPU = nil; previousTime = nil
+        previousCPU = nil; previousCores = nil; previousTime = nil
+        sensors.resetBaseline()
         networkTracker.resetBaseline()
         nextSlowSample = 0
         nextProcessSample = 0
+        nextSensorSample = 0
+        frequency = nil
     }
 
     private static let secondsPerTick: Double = {
@@ -100,6 +123,23 @@ public final class SystemCollector {
         guard result == KERN_SUCCESS else { return nil }
         return CPUTicks(user: value.cpu_ticks.0, system: value.cpu_ticks.1,
                         idle: value.cpu_ticks.2, nice: value.cpu_ticks.3)
+    }
+
+    private func readCores() -> [CPUTicks]? {
+        var processors: natural_t = 0
+        var info: processor_info_array_t?
+        var count: mach_msg_type_number_t = 0
+        guard host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &processors, &info, &count) == KERN_SUCCESS,
+              let info else { return nil }
+        defer {
+            vm_deallocate(mach_task_self_, vm_address_t(UInt(bitPattern: info)), vm_size_t(Int(count) * MemoryLayout<integer_t>.stride))
+        }
+        return (0..<Int(processors)).map { core in
+            let base = core * Int(CPU_STATE_MAX)
+            func ticks(_ state: Int32) -> UInt32 { UInt32(bitPattern: info[base + Int(state)]) }
+            return CPUTicks(user: ticks(CPU_STATE_USER), system: ticks(CPU_STATE_SYSTEM),
+                            idle: ticks(CPU_STATE_IDLE), nice: ticks(CPU_STATE_NICE))
+        }
     }
 
     private func readMemory(at date: Date) -> Capacity? {

@@ -29,6 +29,10 @@ public struct Snapshot: Codable, Sendable {
     public let systemVersion: String
     public let uptime: Double?
     public let cpuFraction: Double?
+    /// Per logical core, in host_processor_info order; nil until a baseline exists.
+    public let coreFractions: [Double]?
+    public let temperatureCelsius: Double?
+    public let frequency: CPUFrequency?
     public let memory: Capacity?
     public let storage: Capacity?
     public let battery: Battery?
@@ -40,6 +44,8 @@ public struct Snapshot: Codable, Sendable {
     public static let fixture = Snapshot(
         sequence: 1, sampledAt: Date(timeIntervalSince1970: 1778077020), systemVersion: "macOS 14.0", uptime: 29_321,
         cpuFraction: 0.14,
+        coreFractions: [0.31, 0.22, 0.18, 0.12, 0.09, 0.07, 0.15, 0.04, 0.11, 0.06, 0.20, 0.03, 0.08, 0.13, 0.05, 0.10],
+        temperatureCelsius: 47, frequency: CPUFrequency(efficiencyMHz: 2_571, performanceMHz: 3_610),
         memory: Capacity(used: 23 * pow(1024, 3), total: 64 * pow(1024, 3), sampledAt: Date(timeIntervalSince1970: 1778077020)),
         storage: Capacity(used: 412 * pow(1024, 3), total: 994 * pow(1024, 3), sampledAt: Date(timeIntervalSince1970: 1778077020)),
         battery: Battery(fraction: 0.86, state: "On battery", sampledAt: Date(timeIntervalSince1970: 1778077020)),
