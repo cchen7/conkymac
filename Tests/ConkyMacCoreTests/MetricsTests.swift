@@ -127,3 +127,15 @@ import Testing
     #expect(abs((load?.efficiency ?? 0) - 0.3) < 1e-9 && abs((load?.performance ?? 0) - 0.2) < 1e-9)
     #expect(ClusterLoad.from([0.5], kinds: [:]) == nil)
 }
+
+@Test func hiddenPanelsPauseDisplayOnlySampling() {
+    let collector = SystemCollector()
+    collector.detailsWanted = false
+    let hidden = collector.sample()
+    #expect(hidden.processes == nil && hidden.temperatureCelsius == nil)
+    #expect(!hidden.issues.contains { $0.hasPrefix("Processes") || $0.hasPrefix("Temperature") })
+    #expect(hidden.memory != nil) // continuous metrics keep sampling
+    collector.detailsWanted = true
+    // Becoming visible refreshes immediately instead of waiting for the next 5 s slot.
+    #expect(collector.sample().processes?.isEmpty == false)
+}

@@ -263,6 +263,8 @@ final class ThemeView: NSView {
     var history = History(capacity: 120)
     var previewBackground = false
     private(set) var drawMilliseconds: [Double] = []
+    private(set) var skippedUpdates = 0
+    private var stale = false
 
     init(renderer: ThemeRenderer) {
         self.renderer = renderer
@@ -277,6 +279,18 @@ final class ThemeView: NSView {
         snapshot = value
         history.append(value.cpuFraction)
         setAccessibilityValue("CPU \(value.cpuFraction.map { String(format: "%.0f percent", $0 * 100) } ?? "unavailable")")
+        // A desktop panel is usually covered by other windows; draw only what can be seen.
+        if window?.occlusionState.contains(.visible) ?? true {
+            needsDisplay = true
+        } else {
+            stale = true
+            skippedUpdates += 1
+        }
+    }
+
+    func occlusionChanged() {
+        guard stale, window?.occlusionState.contains(.visible) == true else { return }
+        stale = false
         needsDisplay = true
     }
 

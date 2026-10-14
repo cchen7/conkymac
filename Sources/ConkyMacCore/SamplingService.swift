@@ -7,6 +7,7 @@ public final class SamplingService: @unchecked Sendable {
     private let interface: String?
     private var timer: DispatchSourceTimer?
     private var collector: SystemCollector?
+    private var detailsWanted = true
 
     public init(interface: String? = nil) { self.interface = interface }
 
@@ -14,6 +15,7 @@ public final class SamplingService: @unchecked Sendable {
         queue.async { [self] in
             timer?.cancel()
             if collector == nil { collector = SystemCollector(interface: interface) }
+            collector?.detailsWanted = detailsWanted
             guard let activeCollector = collector else { return }
             activeCollector.resetBaselines()
             let source = DispatchSource.makeTimerSource(queue: queue)
@@ -21,6 +23,13 @@ public final class SamplingService: @unchecked Sendable {
             source.setEventHandler { deliver(activeCollector.sample()) }
             timer = source
             source.resume()
+        }
+    }
+
+    public func setDetailsWanted(_ wanted: Bool) {
+        queue.async { [self] in
+            detailsWanted = wanted
+            collector?.detailsWanted = wanted
         }
     }
 

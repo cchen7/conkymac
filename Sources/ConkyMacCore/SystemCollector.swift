@@ -29,6 +29,7 @@ public final class SystemCollector {
     private var gpuTemperature: Double?
     private var frequency: CPUFrequency?
     private var nextSensorSample: Double = 0
+    private var nextTemperatureSample: Double = 0
     private var previousTime: Double?
     private var networkTracker = NetworkTracker()
     private var sequence: UInt64 = 0
@@ -38,6 +39,12 @@ public final class SystemCollector {
     private var nextSlowSample: Double = 0
     private var processes: ProcessSummary?
     private var nextProcessSample: Double = 0
+
+    /// Display-only readings (ps ranking, SMC, IOReport) pause while no panel is visible;
+    /// CPU, memory and network keep sampling so history and session totals stay continuous.
+    public var detailsWanted = true {
+        didSet { if detailsWanted && !oldValue { nextProcessSample = 0; nextSensorSample = 0; nextTemperatureSample = 0 } }
+    }
 
     public init(interface: String? = nil) {
         requestedInterface = interface
@@ -80,20 +87,24 @@ public final class SystemCollector {
             nextSlowSample = started + 30
         }
         issues += slowIssues
-        // ps costs ~20 ms of system time per run, so refresh the ranking every 3 seconds.
-        if started >= nextProcessSample {
+        // ps costs ~26 ms of CPU in the child per run, so refresh the ranking every 5 seconds.
+        if detailsWanted && started >= nextProcessSample {
             processes = ProcessTable.read(limit: 5)
-            nextProcessSample = started + 3
+            nextProcessSample = started + 5
         }
-        if processes == nil { issues.append("Processes: /bin/ps unavailable") }
-        // IOReport (~5 ms) and SMC (~4 ms) reads every 2 s; frequency averages over that window.
-        if started >= nextSensorSample {
+        if detailsWanted && processes == nil { issues.append("Processes: /bin/ps unavailable") }
+        // IOReport (~5 ms) every 2 s, averaging frequency over that window; SMC temperatures
+        // (~4 ms for 60 keys) every 5 s, since they change slowly.
+        if detailsWanted && started >= nextSensorSample {
             frequency = sensors.frequency()
-            (temperature, gpuTemperature) = sensors.temperatures()
             nextSensorSample = started + 2
         }
+        if detailsWanted && started >= nextTemperatureSample {
+            (temperature, gpuTemperature) = sensors.temperatures()
+            nextTemperatureSample = started + 5
+        }
         if let issue = sensors.frequencyIssue { issues.append(issue) }
-        if temperature == nil { issues.append("Temperature: SMC core sensors unavailable") }
+        if detailsWanted && temperature == nil { issues.append("Temperature: SMC core sensors unavailable") }
         var load = [Double](repeating: 0, count: 3)
         let loadAverage = getloadavg(&load, 3) == 3 ? load : nil
         return Snapshot(sequence: sequence, sampledAt: now, systemVersion: systemVersion, kernel: kernel,
@@ -113,6 +124,7 @@ public final class SystemCollector {
         nextSlowSample = 0
         nextProcessSample = 0
         nextSensorSample = 0
+        nextTemperatureSample = 0
         frequency = nil
     }
 

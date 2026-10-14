@@ -175,6 +175,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     @objc private func hideMonitor() { hidden = true; windows.forEach { $0.orderOut(nil) }; stopSampling() }
     @objc private func quit() { NSApp.terminate(nil) }
     func windowShouldClose(_ sender: NSWindow) -> Bool { hideMonitor(); return false }
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        ((notification.object as? NSWindow)?.contentView as? ThemeView)?.occlusionChanged()
+        sampler.setDetailsWanted(windows.contains { $0.occlusionState.contains(.visible) })
+    }
 
     func applicationWillTerminate(_ notification: Notification) {
         stopSampling()
@@ -194,7 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     let p95 = times.isEmpty ? 0 : times[min(times.count - 1, Int(Double(times.count - 1) * 0.95))]
                     lua = " lua_evals=\(times.count) lua_p50_ms=\(String(format: "%.3f", p50)) lua_p95_ms=\(String(format: "%.3f", p95)) lua_error=\(theme.failure != nil)"
                 }
-                print("GUI_SUMMARY theme=\(renderer.name) samples=\(sampleCount) windows=\(windows.count) frames=\(frames) draws=\(values.count) draw_p95_ms=\(String(format: "%.3f", p95)) mouse_passthrough=\(window.ignoresMouseEvents) level=\(window.level.rawValue)\(lua)")
+                print("GUI_SUMMARY theme=\(renderer.name) samples=\(sampleCount) windows=\(windows.count) frames=\(frames) draws=\(values.count) skipped=\(views.map(\.skippedUpdates).reduce(0, +)) draw_p95_ms=\(String(format: "%.3f", p95)) mouse_passthrough=\(window.ignoresMouseEvents) level=\(window.level.rawValue)\(lua)")
             }
         }
     }
