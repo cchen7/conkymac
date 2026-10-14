@@ -96,6 +96,8 @@ import Testing
     // M1-M3: Hz.
     #expect(SensorMath.dvfsTable(entries([600_000_000, 3_228_000_000])) == [600, 3228])
     #expect(SensorMath.dvfsTable(Data([1, 2, 3])).isEmpty)
+    // An inner zero stays in place so later frequencies keep their state index.
+    #expect(SensorMath.dvfsTable(entries([1_020_000, 0, 2_592_000, 0])) == [1020, 0, 2592])
 }
 
 @Test func clusterFrequencyWeightsActiveResidency() {

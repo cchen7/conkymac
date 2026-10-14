@@ -14,9 +14,11 @@ enum SensorMath {
     /// M4 and later report kHz, earlier chips Hz; returns MHz.
     static func dvfsTable(_ data: Data) -> [Double] {
         let bytes = [UInt8](data)
-        let values = stride(from: 0, to: bytes.count - 7, by: 8).map { offset in
+        var values = stride(from: 0, to: bytes.count - 7, by: 8).map { offset in
             (0..<4).reduce(UInt32(0)) { $0 | UInt32(bytes[offset + $1]) << (8 * UInt32($1)) }
-        }.filter { $0 > 0 }
+        }
+        // Only trailing padding is dropped; an inner zero must keep later states aligned.
+        while values.last == 0 { values.removeLast() }
         let divisor: Double = (values.max() ?? 0) > 100_000_000 ? 1_000_000 : 1_000
         return values.map { Double($0) / divisor }
     }
@@ -124,7 +126,11 @@ final class SensorCollector {
 
     func temperatures() -> (cpu: Double?, gpu: Double?) {
         guard smc != 0 else { return (nil, nil) }
-        if temperatureKeys == nil { temperatureKeys = discoverTemperatureKeys() }
+        if temperatureKeys == nil {
+            // An empty result may be a transient SMC failure: keep retrying instead of caching it.
+            let keys = discoverTemperatureKeys()
+            if !keys.cpu.isEmpty || !keys.gpu.isEmpty { temperatureKeys = keys }
+        }
         return (SensorMath.hottest(temperatureKeys?.cpu.compactMap(readFloat) ?? []),
                 SensorMath.hottest(temperatureKeys?.gpu.compactMap(readFloat) ?? []))
     }
