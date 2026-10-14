@@ -47,10 +47,13 @@ codesign --verify --strict --verbose=2 "$APP"
 
 if (( ! REHEARSAL )); then
   # Notarize and staple the app itself too, so a copy in /Applications passes Gatekeeper offline.
-  ditto -c -k --keepParent "$APP" "$STAGE.zip"
-  notarize "$STAGE.zip"
-  rm -f "$STAGE.zip"
-  xcrun stapler staple "$APP"
+  # A rerun with unchanged code already has a ticket for this cdhash: staple it and skip the queue.
+  if ! xcrun stapler staple "$APP" > /dev/null 2>&1; then
+    ditto -c -k --keepParent "$APP" "$STAGE.zip"
+    notarize "$STAGE.zip"
+    rm -f "$STAGE.zip"
+    xcrun stapler staple "$APP"
+  fi
 fi
 
 ln -s /Applications "$STAGE/Applications"
