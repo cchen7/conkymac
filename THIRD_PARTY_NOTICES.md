@@ -60,6 +60,13 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+## cairo API names
+
+`Sources/ConkyLuaBridge` exposes Lua functions named after the
+[cairo](https://www.cairographics.org/) C API so existing Conky Lua scripts can
+call them. It is an independent CoreGraphics implementation written from the
+public API documentation; no cairo code is included or linked.
+
 ## Simple-Conky-theme
 
 Visual reference selected by the user:
@@ -73,4 +80,7 @@ See `docs/simple-theme-migration.md` for scope and visual differences.
 ## Conky
 
 Conky is a research and syntax reference. No Conky engine code is included in
-this native prototype. Future reuse must retain its applicable GPL/BSD notices.
+this native prototype; the Lua theme host follows Conky's documented script
+conventions (`conky_window`, `conky_parse`, `lua_load`, draw hooks). Future reuse
+must retain its applicable GPL/BSD notices. Third-party Conky themes are not
+redistributed.
