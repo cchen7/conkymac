@@ -1,6 +1,6 @@
 # Swift 原生架构与性能决策
 
-日期：2026-10-14。项目：[cchen7/conkymac](https://github.com/cchen7/conkymac)。本文保留初始设计评估。后续已实现首个 Swift/AppKit 侧栏原型，见 [实现与验证记录](../docs/native-prototype-validation.md)；尚无宿主 GUI 验证和原生应用性能基线。以下设计/调研结论不能代替新原型的执行结果。
+日期：2026-10-14。项目：[cchen7/conkymac](https://github.com/cchen7/conkymac)。本文保留初始设计评估。后续已实现首个 Swift/AppKit 侧栏原型，见 [实现与验证记录](../docs/native-prototype-validation.md)；尚无宿主 GUI 验证和原生应用性能基线。以下设计/调研结论不能代替新原型的执行结果。**2026-10-14 决策变更：Cairo C 库由 CoreGraphics 实现的 cairo 子集取代，见第 10 节；下文保留 Cairo 的原表述仅作历史记录。**
 
 ## 1. 建议
 
@@ -20,8 +20,8 @@ Swift 的价值在于 macOS 集成、类型化状态、生命周期与并发隔�
 | 原生主题模型与有限模板 | Swift 类型化布局/绑定模型 | 配置加载时解析，运行时更新值；只实现精选主题真正使用的格式语义 | 首批主题阶段 |
 | 原生绘制 | Swift + CoreGraphics/CoreText/CALayer | 缓存字体/布局/资源，按变化更新；根据内容选择绘制与图层，不能假定图层越多越快 | 首批主题阶段 |
 | 配置/主题转换 | Swift 工具或应用导入流程 | 静态布局、指标、路径可转换；动态 Lua 与外部命令生成报告并人工适配 | 首个主题闭环后 |
-| Lua 解释器 | 保留原有 C 实现，Swift 宿主 + 小型 C 桥 | 复用任意主题算法；没有必要用 Swift 重写解释器 | 保留 |
-| Cairo 兼容绘图 | 保留 C 库，隔离在主题适配层 | 保留曲线、渐变、文字等已有脚本；按主题实测 CPU/拷贝/刷新成本 | 保留，后续按需迁移 |
+| Lua 解释器 | 内置官方 Lua 5.4.9 C 源码，Swift 宿主 + 小型 C 桥 | 复用任意主题算法；没有必要用 Swift 重写解释器 | 已实现（第 10 节） |
+| Cairo 兼容绘图 | ~~保留 C 库~~ → C 桥内以 CoreGraphics 实现 `cairo_*` 子集 | 零第三方原生依赖、原生渲染；兼容性按函数逐个实现 | 已实现首批子集（第 10 节） |
 | 系统 ABI/未公开传感器接口 | 小型 C/Objective-C 声明及包装 | Swift 可负责封装和状态；不要为语言统一重写底层 ABI | 保留小边界 |
 | Metal 渲染器 | 暂不选择 | 常规时钟、条形图、圆环没有已测 GPU 瓶颈；有复杂动画证据时再评估 | 实测后决定 |
 
@@ -73,7 +73,7 @@ flowchart TD
   D --> H[Lua 主题运行层]
   B --> F
   B --> H
-  H --> I[Cairo 兼容画布]
+  H --> I[cairo 子集（CoreGraphics 离屏位图）]
   I --> G
 ```
 
@@ -153,3 +153,23 @@ Lua `longjmp`、panic 与宿主语言栈也是实现边界：脚本入口使用�
 - [AppKit updateLayer](https://developer.apple.com/documentation/appkit/nsview/updatelayer%28%29)
 
 官方 API 文档通过 Context7 查询；关于热点成本的结论来自源码观察，速度提升需后续实测。
+
+## 10. 决策变更：CoreGraphics 实现的 cairo 子集（2026-10-14）
+
+用户选择零依赖、原生渲染路线：**不再链接 Cairo C 库**，改为在 C 桥 `Sources/ConkyLuaBridge` 中以 CoreGraphics 实现 Lua 可调用的 `cairo_*` 子集；Lua 使用内置的官方 5.4.9 源码（`Sources/CLua`，SHA-256 校验后原样复制，`LUA_USE_MACOSX`）。首批目标为 Rings（londonali1010）与 Air Clock（Alison Pitt）；两份脚本无许可证，只从本机路径加载测试，不进入仓库。
+
+### 实现边界
+
+- **longjmp 安全**：所有 Lua C 函数和 `lua_pcall` 都在 C 中；Swift 只调用 `conky_lua_open/draw/close`，入口统一经消息处理函数 + `lua_pcall`。Swift 的 `conky_parse` 回调是不会抛错的 `@convention(c)` 闭包，返回 `strdup` 字符串，C 在嵌套 pcall 中复制后 `free`，避免内存错误时泄漏。
+- **状态模型**：每个 `cairo_t` 自带 CTM、源（纯色或渐变）、线宽/端点/连接/斜接/填充规则和最多 16 层 save 栈；路径按 cairo 语义在添加时乘以 CTM 并保存在该 `cairo_t` 的 `CGMutablePath`（与 CG 上下文分离，多个 `cairo_t` 互不干扰）。每次绘制操作在一对 `CGContextSaveGState/RestoreGState` 内完成，中间不会抛出 Lua 错误，基础 CTM 不会失衡。
+- **语义映射**：`cairo_arc` 角度按 cairo 规则归一化后用 `CGPathAddArc`（y 向下坐标中 CG 的逆时针标志即视觉顺时针，与 cairo 相同，单元测试按像素验证）；渐变描边用 `CGContextReplacePathWithStrokedPath` + 裁剪，渐变以 `set_source` 时的 CTM 解释，`EXTEND_PAD` 对应 CG 的前后延伸选项；`*_preserve` 保留路径。`cairo_t`/pattern 为带 `__gc` 的 userdata，显式 destroy 幂等；pattern 被 `cairo_t` 引用时（经 uservalue 表）destroy 后仍可用，与 cairo 引用计数行为一致。
+- **画布**：每个快照在主线程执行一次钩子，画入 sRGB 预乘 alpha 离屏位图（倍率 `max(屏幕倍率, 2)`），各显示器视图只绘制缓存图像。`cairo_xlib_surface_create` 返回指向“当前绘制”的 surface；钩子外绘制会报错。
+- **限制**：每次加载/绘制 250 ms Lua 指令预算、128 MiB Lua 内存上限；不开放 `io`、`debug`、C 模块、`string.dump` 与 `os.execute` 等；主题来自不可信下载，所有加载路径（配置、`lua_load`、`load/loadfile/dofile`、`require`）强制文本模式，拒绝可破坏内存的预编译二进制块。持久 `cairo_t` 若从不 stroke/fill，路径会像 cairo 一样增长，未设上限。
+
+### 后果与兼容性
+
+- 兼容性按函数逐个实现：已支持路径、弧、贝塞尔、矩形、线型、填充规则、纯色与线性/径向渐变、变换、save/restore、paint。**文字 API、clip、image surface、operator、dash、图片绘制尚未实现**；调用未实现的 `cairo_*`/`CAIRO_*` 名称报出明确错误。很多 Conky 主题依赖文字，需按主题继续补齐。
+- 抗锯齿、渐变插值与 Cairo 不保证逐像素一致；以目视对比脚本意图为准。
+- `conky.text` 不渲染；`conky_parse` 只实现首批模板变量（见 README）。每核 CPU 暂回退整机值。
+- 测量（Apple M4 Max，Release，2× 位图）：rings + Air Clock 组合主题与 `arcs` 测试主题的 GUI 烟测中，每次 Lua 钩子 p50 2.6–6.6 ms、p95 4.2–8.2 ms（1 Hz，主线程，含光栅化），运行间波动明显；尚未 profile，也未尝试移到后台队列。
+

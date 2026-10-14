@@ -6,8 +6,10 @@ import CoreText
 /// columns and thin bars. Uses SF Symbols instead of the theme's ConkySymbols font,
 /// P/E cluster rows instead of per-core rows, and a generic network section.
 @MainActor
-final class MinimalisTheme {
+final class MinimalisTheme: ThemeRenderer {
     static let size = NSSize(width: 340, height: 620)
+    var size: NSSize { Self.size }
+    let name = "Minimalis"
     private let accent = NSColor(red: 0x17 / 255, green: 0x93 / 255, blue: 0xd1 / 255, alpha: 1)
     private let value = NSColor(white: 0.75, alpha: 1)
     private let right: CGFloat = 328

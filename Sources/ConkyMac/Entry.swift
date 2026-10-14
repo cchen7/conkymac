@@ -10,7 +10,8 @@ private struct Options {
     var interface: String?
     var diagnose = false
     var iconMargin = 120.0
-    var theme = "simple"
+    /// A built-in theme id or an absolute Conky Lua .conf path; nil keeps the menu choice.
+    var theme: String?
 
     init(_ arguments: [String]) throws {
         var index = 0
@@ -25,13 +26,16 @@ private struct Options {
             case "--preview": preview = true
             case "--diagnostics": diagnose = true
             case "--interface": interface = try value()
-            case "--theme":
-                theme = try value()
-                guard ["simple", "minimalis"].contains(theme) else { throw CLIError.usage("Theme must be simple or minimalis") }
             case "--icon-margin":
                 guard let number = Double(try value()), (0...600).contains(number) else { throw CLIError.usage("Icon margin must be 0...600 points") }
                 iconMargin = number
             case "--render": render = try value()
+            case "--theme":
+                let path = try value()
+                if ThemeLibrary.builtIns.contains(where: { $0.id == path.lowercased() }) { theme = path.lowercased(); break }
+                let resolved = URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path
+                guard FileManager.default.fileExists(atPath: resolved) else { throw CLIError.usage("Theme not found: \(path)") }
+                theme = resolved
             case "--scale":
                 guard let number = Int(try value()), (1...2).contains(number) else { throw CLIError.usage("Scale must be 1 or 2") }
                 scale = number
@@ -48,13 +52,13 @@ private struct Options {
     }
 }
 
-private enum CLIError: Error { case usage(String); case render }
+private enum CLIError: Error { case usage(String); case render; case lua(String) }
 
 @main
 struct ConkyMacMain {
     @MainActor static func main() {
         if CommandLine.arguments.contains("--help") {
-            print("ConkyMac [--preview] [--interface en0] [--diagnostics]\n  --probe N       Print N real snapshots at 1 Hz, then exit\n  --smoke N       Run the GUI for N snapshots, then exit\n  --render PATH   Save a fixed-input PNG (dark preview background)\n  --scale 1|2     PNG pixel scale (default: 2)\n  --icon-margin N Extra right margin on the main display for desktop icons (default: 120)")
+            print("ConkyMac [--preview] [--interface en0] [--diagnostics]\n  --probe N       Print N real snapshots at 1 Hz, then exit\n  --smoke N       Run the GUI for N snapshots, then exit\n  --render PATH   Save a fixed-input PNG (dark preview background)\n  --scale 1|2     PNG pixel scale (default: 2)\n  --icon-margin N Extra right margin on the main display for desktop icons (default: 120)\n  --theme ID|PATH Built-in theme (simple, minimalis) or Conky Lua .conf (overrides the menu choice; also used by --render)")
             return
         }
         do {
@@ -70,22 +74,28 @@ struct ConkyMacMain {
                 return
             }
             if let path = options.render {
-                try render(to: path, scale: options.scale, theme: options.theme)
+                try render(to: path, scale: options.scale, theme: options.theme, diagnostics: options.diagnose)
                 return
             }
             let application = NSApplication.shared
             let delegate = AppDelegate(preview: options.preview, interface: options.interface, iconMargin: options.iconMargin,
-                                       smokeSamples: options.smoke, diagnose: options.diagnose)
+                                       smokeSamples: options.smoke, diagnose: options.diagnose, theme: options.theme)
             application.delegate = delegate
             withExtendedLifetime(delegate) { application.run() }
+        } catch CLIError.lua {
+            exit(1)  // LuaTheme already reported the script error on stderr.
         } catch {
             FileHandle.standardError.write(Data("ConkyMac: \(error)\nUse --help for usage.\n".utf8))
             exit(1)
         }
     }
 
-    @MainActor private static func render(to path: String, scale: Int, theme: String) throws {
-        let size = theme == "minimalis" ? MinimalisTheme.size : SimpleTheme.size
+    @MainActor private static func render(to path: String, scale: Int, theme: String?, diagnostics: Bool) throws {
+        // Without --theme the fixture renders Simple, keeping the recorded baseline hash meaningful.
+        let id = theme ?? "simple"
+        let renderer: ThemeRenderer = ThemeLibrary.builtIn(id, fixedTimeZone: true)
+            ?? LuaTheme(path: id, fixedDate: Snapshot.fixture.sampledAt, scale: CGFloat(scale), diagnostics: diagnostics)
+        let size = renderer.size
         guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width) * scale,
                                             pixelsHigh: Int(size.height) * scale, bitsPerSample: 8,
                                             samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -101,14 +111,11 @@ struct ConkyMacMain {
         let flipped = NSGraphicsContext(cgContext: context, flipped: true)
         NSGraphicsContext.current = flipped
         let history: [Double?] = (0..<120).map { index in 0.08 + Double((index * 17) % 23) / 100 }
-        if theme == "minimalis" {
-            MinimalisTheme(fixedTimeZone: true).draw(snapshot: .fixture, history: history, background: true)
-        } else {
-            SimpleTheme(fixedTimeZone: true).draw(snapshot: .fixture, history: history, background: true)
-        }
+        renderer.draw(snapshot: .fixture, history: history, background: true)
         NSGraphicsContext.restoreGraphicsState()
         guard let data = bitmap.representation(using: .png, properties: [:]) else { throw CLIError.render }
         try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        if let failure = (renderer as? LuaTheme)?.failure { throw CLIError.lua(failure) }
         print("RENDER_OK \(path) \(bitmap.pixelsWide)x\(bitmap.pixelsHigh)")
     }
 }
