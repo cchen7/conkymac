@@ -12,13 +12,14 @@ protocol ThemeRenderer: AnyObject {
 /// Themes are identified by a built-in id or an absolute Conky Lua .conf path.
 /// User themes live in ~/Library/Application Support/ConkyMac/Themes/<name>/<name>.conf.
 enum ThemeLibrary {
-    static let defaultID = "simple"
-    static let builtIns: [(id: String, name: String)] = [("simple", "Simple"), ("minimalis", "Minimalis")]
+    static let defaultID = "simple-plus"
+    static let builtIns: [(id: String, name: String)] = [("simple-plus", "Simple Plus"), ("simple", "Simple"), ("minimalis", "Minimalis")]
 
     /// nil for ids that are not built in (i.e. Lua .conf paths).
     @MainActor static func builtIn(_ id: String, fixedTimeZone: Bool = false) -> ThemeRenderer? {
         switch id {
         case "simple": SimpleTheme(fixedTimeZone: fixedTimeZone)
+        case "simple-plus": SimpleTheme(fixedTimeZone: fixedTimeZone, layout: .plus)
         case "minimalis": MinimalisTheme(fixedTimeZone: fixedTimeZone)
         default: nil
         }

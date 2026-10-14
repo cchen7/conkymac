@@ -4,9 +4,14 @@ import CoreText
 
 @MainActor
 final class SimpleTheme: ThemeRenderer {
+    /// classic: the Simple-Conky-theme sidebar. plus: Simple's date and clock over the
+    /// Minimalis sections (minus its OS/kernel block), drawn in Simple's style.
+    enum Layout { case classic, plus }
     static let size = NSSize(width: 300, height: 912)
-    var size: NSSize { Self.size }
-    let name = "Simple"
+    static let plusSize = NSSize(width: 300, height: 812)
+    private let layout: Layout
+    var size: NSSize { layout == .classic ? Self.size : Self.plusSize }
+    var name: String { layout == .classic ? "Simple" : "Simple Plus" }
     private let foreground = NSColor(white: 0.96, alpha: 1)
     private let secondary = NSColor(white: 0.68, alpha: 1)
     private let accent = NSColor(red: 0.83, green: 0.66, blue: 1, alpha: 1)
@@ -18,7 +23,8 @@ final class SimpleTheme: ThemeRenderer {
     private var icons: [String: NSImage] = [:]
     private let fontName: String
 
-    init(fixedTimeZone: Bool = false) {
+    init(fixedTimeZone: Bool = false, layout: Layout = .classic) {
+        self.layout = layout
         fontName = !fixedTimeZone && NSFont(name: "IBMPlexMono", size: 12) != nil ? "IBMPlexMono" : "Menlo"
         for formatter in [weekday, date, clock] {
             formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -35,7 +41,7 @@ final class SimpleTheme: ThemeRenderer {
         defer { context.restoreGState() }
         if background {
             NSColor(calibratedWhite: 0.12, alpha: 1).setFill()
-            NSRect(origin: .zero, size: Self.size).fill()
+            NSRect(origin: .zero, size: size).fill()
         } else {
             // Transparent desktop mode: keep text legible on bright wallpapers.
             // One layer, so the whole panel casts a single shadow pass.
@@ -47,6 +53,7 @@ final class SimpleTheme: ThemeRenderer {
         text(weekday.string(from: now).uppercased(), x: 20, y: 15, size: 25)
         text(date.string(from: now).uppercased(), x: 20, y: 51, size: 17)
         text(clock.string(from: now), x: 16, y: 82, size: 57)
+        if layout == .plus { drawPlus(snapshot); return }
 
         row("SYSTEM", value: nil, icon: "desktopcomputer", y: 172)
         text(snapshot?.systemVersion ?? "macOS", x: 44, y: 197, size: 12)
@@ -88,6 +95,64 @@ final class SimpleTheme: ThemeRenderer {
                 text(bytes(process.memoryBytes), x: 280, y: y, size: 10, right: true)
             }
         }
+    }
+
+    private func drawPlus(_ snapshot: Snapshot?) {
+        let frequency = snapshot?.frequency, load = snapshot?.clusterLoad
+        func cluster(_ megahertz: Double?, _ fraction: Double?) -> String {
+            let speed = megahertz.map { String(format: "%.2f GHz", $0 / 1000) } ?? "idle"
+            return fraction.map { "\(speed) · \(Int(($0 * 100).rounded()))%" } ?? speed
+        }
+        row("SYSTEM", value: nil, icon: "cpu", y: 172)
+        row("P-CORES", value: cluster(frequency?.performanceMHz, load?.performance), icon: "bolt", y: 198, size: 10, valueSize: 10)
+        bar(fraction: load?.performance, y: 219)
+        row("E-CORES", value: cluster(frequency?.efficiencyMHz, load?.efficiency), icon: "leaf", y: 232, size: 10, valueSize: 10)
+        bar(fraction: load?.efficiency, y: 253)
+        row("UPTIME", value: snapshot?.uptime.map { uptime($0) } ?? "N/A", icon: "clock", y: 266, size: 10, valueSize: 10)
+        row("LOAD", value: snapshot?.loadAverage.map { $0.map { String(format: "%.2f", $0) }.joined(separator: " ") } ?? "N/A",
+            icon: "gauge.with.dots.needle.33percent", y: 290, size: 10, valueSize: 10)
+
+        func celsius(_ value: Double?) -> String { value.map { String(format: "%.0f°C", $0) } ?? "N/A" }
+        row("TEMPERATURE", value: "CPU \(celsius(snapshot?.temperatureCelsius)) · GPU \(celsius(snapshot?.gpuTemperatureCelsius))",
+            icon: "thermometer.medium", y: 328, valueSize: 11)
+
+        row("MEMORY", value: nil, icon: "memorychip", y: 366)
+        row("RAM", value: capacity(snapshot?.memory), icon: "square.stack.3d.up", y: 392, size: 10, valueSize: 10)
+        bar(fraction: snapshot?.memory?.fraction, y: 413)
+        let swap = snapshot?.swap
+        row("SWAP", value: swap.map { "\(bytes($0.used))/\(bytes($0.total))" } ?? "N/A", icon: "arrow.left.arrow.right",
+            y: 426, size: 10, valueSize: 10)
+        bar(fraction: swap.map { $0.total > 0 ? $0.fraction : 0 }, y: 447)
+
+        row("PROCESSES", value: snapshot?.processes == nil ? "N/A" : nil, icon: "list.bullet.rectangle", y: 484)
+        if let byCPU = snapshot?.processes {
+            text("BY CPU", x: 20, y: 510, size: 9, color: secondary)
+            text("BY MEMORY", x: 158, y: 510, size: 9, color: secondary)
+            let byMemory = snapshot?.processesByMemory ?? []
+            for index in 0..<5 {
+                let y = 528 + CGFloat(index) * 20
+                if index < byCPU.count {
+                    text(fitted(byCPU[index].name, size: 10, width: 84), x: 20, y: y, size: 10)
+                    text(String(format: "%.1f%%", byCPU[index].cpuPercent), x: 146, y: y, size: 10, right: true)
+                }
+                if index < byMemory.count {
+                    text(fitted(byMemory[index].name, size: 10, width: 66), x: 158, y: y, size: 10)
+                    text(bytes(byMemory[index].memoryBytes), x: 280, y: y, size: 10, right: true)
+                }
+            }
+            let counts = [snapshot?.processCount.map { "\($0) processes" }, snapshot?.runningProcessCount.map { "\($0) running" }]
+            text(counts.compactMap { $0 }.joined(separator: " · "), x: 20, y: 630, size: 10, color: secondary)
+        }
+
+        row("STORAGE", value: capacity(snapshot?.storage), icon: "internaldrive", y: 664, valueSize: 11)
+        bar(fraction: snapshot?.storage?.fraction, y: 691)
+
+        let network = snapshot?.network
+        row("NETWORK", value: network?.interface ?? "N/A", icon: "network", y: 724, valueSize: 11)
+        row("SPEED", value: network.map { "↓ \(rate($0.downloadBytesPerSecond))  ↑ \(rate($0.uploadBytesPerSecond))" } ?? "N/A",
+            icon: "arrow.up.arrow.down", y: 754, size: 10, valueSize: 10)
+        row("TOTAL", value: network.map { "↓ \(bytes($0.sessionDownloadBytes))  ↑ \(bytes($0.sessionUploadBytes))" } ?? "N/A",
+            icon: "sum", y: 780, size: 10, valueSize: 10)
     }
 
     private func text(_ string: String, x: CGFloat, y: CGFloat, size: CGFloat, color: NSColor? = nil, right: Bool = false) {
