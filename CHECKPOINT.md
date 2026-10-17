@@ -14,7 +14,7 @@
 
 ### Git
 
-- `main` = `bbfe390` 调研基线；功能分支 `feat/simple-native-sidebar` 含原型、宿主验证、双屏、进程榜、传感器、Minimalis、Simple Plus，以及合并进来的 `feat/lua-cairo-theme`（`0a5a3aa`）。用 `git log --oneline` 查看。
+- `main` = `83d5614` 调研基线；功能分支 `feat/simple-native-sidebar` 含原型、宿主验证、双屏、进程榜、传感器、Minimalis、Simple Plus，以及合并进来的 `feat/lua-cairo-theme`（`da683dc`）。用 `git log --oneline` 查看。
 - 临时 worktree 已按用户同意删除；分支 `feat/lua-cairo-theme`、`docs/simple-theme-plan` 已完全合入、仍保留。用户提供的 `reference/`（Minimalis 压缩包）已按要求删除。
 - 未 push、未合并 main。
 

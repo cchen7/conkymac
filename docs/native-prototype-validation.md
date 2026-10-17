@@ -121,7 +121,7 @@
 - Simple 增加 PROCESSES 区，面板 912pt；Minimalis 340×620pt；Simple Plus（默认）300×812pt。三者都在双屏桌面模式烟测退出 0、无残留进程，绘制 p95 约 2.3–3.7 ms（5–15 样本）。
 - 120 秒双屏 Simple（含进程榜）：本进程 CPU 时间 1.75 s（单窗口无阴影基线为 0.71 s；差额主要来自双窗口绘制 246 次与阴影，ps 本进程部分约 0.08 s）、RSS 91–99 MiB、绘制 p95 2.95 ms、采集 p95 59 ms（ps 那一轮的墙钟时间）。
 - 固定渲染 SHA-256（2×）：Simple `be97672a…`、Simple Plus `c474572c…`、Minimalis `47ed55b4…`、Lua arcs `a501cfc5…`、本地 rings-clock `a28ddf7d…`；重复渲染逐字节一致。
-- Lua/Cairo 分支由子代理在独立 worktree 完成后合并（`0a5a3aa`）。合并后审查发现：时间预算可被脚本的 `pcall` 或 `__gc` 终结器绕过，从而卡死主线程；已修复并加测试（`192b75a`），测试 14 + 8 项通过。
+- Lua/Cairo 分支由子代理在独立 worktree 完成后合并（`da683dc`）。合并后审查发现：时间预算可被脚本的 `pcall` 或 `__gc` 终结器绕过，从而卡死主线程；已修复并加测试（`fb35369`），测试 14 + 8 项通过。
 
 ## 与 iStat Menus 的开销对比与优化（2026-10-15）
 
