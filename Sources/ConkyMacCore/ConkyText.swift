@@ -35,7 +35,8 @@ public struct ConkySettings: Sendable {
         uppercase = flag("uppercase") ?? uppercase
         shortUnits = flag("short_units") ?? shortUnits
         formatHumanReadable = flag("format_human_readable") ?? formatHumanReadable
-        topNameWidth = number("top_name_width").map { max(0, min(255, Int($0))) } ?? topNameWidth
+        // Clamp in Double space first: Int(1e300) would trap on a hostile theme.
+        topNameWidth = number("top_name_width").map { Int(max(0, min(255, $0))) } ?? topNameWidth
         minimumWidth = number("minimum_width").map { max(0, min(4096, $0)) } ?? minimumWidth
         minimumHeight = number("minimum_height").map { max(0, min(4096, $0)) } ?? minimumHeight
         maximumWidth = number("maximum_width").map { max(0, min(4096, $0)) } ?? maximumWidth
@@ -344,5 +345,46 @@ public enum ConkyText {
             report("\(name) (file and process checks are not run)")
             return false
         }
+    }
+}
+
+/// A Conky `font` / `${font ...}` value: a fontconfig pattern such as `Roboto Mono:size=7:bold`,
+/// `DejaVu Sans-9` or an X11 fixed font like `6x10`. Sizes in points become pixels the way Xft
+/// does at 96 dpi (7 pt = 9.3 px); `pixelsize=` is taken as is.
+public struct ConkyFontSpec: Equatable, Sendable {
+    public var family: String
+    public var pixelSize: Double
+    public var bold = false
+    public var italic = false
+
+    public init(_ specification: String, defaultPoints: Double = 12) {
+        let parts = specification.split(separator: ":", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        var head = parts.first ?? ""
+        var points: Double? = defaultPoints
+        var pixels: Double?
+        var fixedFamily: String?
+        let fixed = head.split(separator: "x").compactMap { Int($0) }
+        if fixed.count == 2, head.allSatisfy({ $0.isNumber || $0 == "x" }) {
+            // X11 bitmap fonts (6x10 is Conky's default): a monospace face with that cell height.
+            fixedFamily = "monospace"; pixels = Double(fixed[1]); points = nil
+        } else if let dash = head.lastIndex(of: "-"), let size = Double(head[head.index(after: dash)...]) {
+            points = size; head = String(head[..<dash])
+        }
+        family = fixedFamily ?? (head.split(separator: ",").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? "")
+        for property in parts.dropFirst() {
+            let pair = property.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            switch (pair[0], pair.count > 1 ? pair[1] : nil) {
+            case ("bold", nil): bold = true
+            case ("italic", nil), ("oblique", nil): italic = true
+            case ("size", let value?): points = Double(value) ?? points; pixels = nil
+            case ("pixelsize", let value?): pixels = Double(value); points = nil
+            case ("weight", let value?): bold = ["bold", "demibold", "semibold", "extrabold", "black", "heavy", "200", "180", "210"].contains(value)
+            case ("slant", let value?): italic = ["italic", "oblique", "100", "110"].contains(value)
+            case ("style", let value?): bold = value.contains("bold"); italic = value.contains("italic") || value.contains("oblique")
+            default: break
+            }
+        }
+        let size = pixels ?? (points ?? defaultPoints) * 96 / 72
+        pixelSize = size.isFinite ? min(200, max(1, size)) : defaultPoints * 96 / 72
     }
 }

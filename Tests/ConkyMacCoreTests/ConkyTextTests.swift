@@ -150,3 +150,39 @@ private extension Array where Element == ConkyNode {
     #expect(configured.minimumWidth == 220 && configured.maximumWidth == 4096 && configured.topNameWidth == 0 && configured.defaultBarHeight == 1)
     #expect(ConkySettings().drawShades && ConkySettings().textInset == 5) // Conky's defaults: shades on, 3 + 1 + 1 margins
 }
+
+@Test func hostileNumbersNeverTrap() {
+    // A downloaded theme controls these values; Int(Double) traps outside the Int range.
+    for value in ["1e300", "-1e300", "inf", "-inf", "nan", "9223372036854775808", "1e19"] {
+        let hostile = ConkySettings(config: ["top_name_width": value, "minimum_width": value, "maximum_width": value,
+                                             "border_width": value, "default_bar_height": value])
+        #expect((0...255).contains(hostile.topNameWidth))
+        #expect(hostile.minimumWidth.isFinite && hostile.borderWidth.isFinite && hostile.defaultBarHeight.isFinite)
+    }
+    var odd = fixtureValues
+    odd.uptime = .infinity; odd.temperature = .infinity; odd.cpu = .nan
+    #expect(ConkyTemplate.evaluate("${uptime}|${acpitemp}|${cpu}|${memperc}", values: odd) == "0h 0m 0s|1000|0|36")
+    odd.uptime = 1e300; odd.temperature = -.infinity
+    #expect(ConkyTemplate.evaluate("${uptime_short}|${acpitemp}", values: odd).hasPrefix("11574074d"))
+    #expect(ConkyFormat.humanReadable(1e300) != "" && ConkyFormat.humanReadable(-1e300) != "" && ConkyFormat.humanReadable(.infinity) == "0B")
+    // Layout items with absurd sizes stay finite numbers (the renderer clamps further).
+    let lines = ConkyText.lines(ConkyTextParser.parse("${goto 1e999}${offset nan}${voffset inf}${hr 1e300}${cpubar 1e400,1e400}"),
+                                values: fixtureValues, settings: ConkySettings())
+    #expect(lines[0].isEmpty == false)
+}
+
+@Test func fontSpecsFollowFontconfigAndXft() {
+    let roboto = ConkyFontSpec("Roboto Mono:size=7")
+    #expect(roboto.family == "Roboto Mono" && !roboto.bold && abs(roboto.pixelSize - 7 * 96 / 72) < 1e-9)
+    let symbols = ConkyFontSpec("ConkySymbols:size=20")
+    #expect(symbols.family == "ConkySymbols" && abs(symbols.pixelSize - 20 * 96 / 72) < 1e-9)
+    let hyphen = ConkyFontSpec("DejaVu Sans Mono-9:bold:slant=italic")
+    #expect(hyphen.family == "DejaVu Sans Mono" && hyphen.bold && hyphen.italic && abs(hyphen.pixelSize - 12) < 1e-9)
+    #expect(ConkyFontSpec("IBM Plex Mono:pixelsize=13:style=Bold Italic") == ConkyFontSpec("IBM Plex Mono:size=9.75:bold:italic"))
+    // The X11 fixed font Conky defaults to: a monospace face with that cell height.
+    let fixed = ConkyFontSpec("6x10")
+    #expect(fixed.family == "monospace" && fixed.pixelSize == 10)
+    #expect(ConkyFontSpec("Sans,Serif:size=10").family == "Sans")
+    #expect(ConkyFontSpec("Mono:size=99999").pixelSize == 200 && ConkyFontSpec("Mono:size=0").pixelSize == 1)
+    #expect(ConkyFontSpec("Mono:size=nan").pixelSize.isFinite)
+}

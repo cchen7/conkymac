@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     /// A built-in id (ThemeLibrary.builtIns) or a Conky Lua .conf path.
     private var themeID: String
     private var renderer: ThemeRenderer
+    private var appliedSize = NSSize.zero
 
     init(preview: Bool, interface: String?, iconMargin: Double, smokeSamples: Int?, diagnose: Bool, theme: String?) {
         self.preview = preview; self.smokeSamples = smokeSamples; self.diagnose = diagnose
@@ -99,21 +100,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         view.previewBackground = preview
         window.styleMask = preview ? [.titled, .closable, .miniaturizable] : .borderless
         window.title = "ConkyMac — \(renderer.name)"
-        window.setContentSize(renderer.size)
         window.isOpaque = preview
         window.backgroundColor = preview ? NSColor(white: 0.12, alpha: 1) : .clear
         window.hasShadow = preview
         window.ignoresMouseEvents = !preview
         window.level = preview ? .normal : NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) - 1)
         window.collectionBehavior = preview ? [.managed] : [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        place(window, on: screen, isMain: isMain)
+        view.needsDisplay = true
+        window.orderFrontRegardless()
+        if preview { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+    }
+
+    /// Sizes the window to the theme and puts it at the top-right of its display.
+    private func place(_ window: NSWindow, on screen: NSScreen, isMain: Bool) {
+        window.setContentSize(renderer.size)
+        appliedSize = renderer.size
         let frame = screen.visibleFrame
         // Finder puts desktop icons in a right-hand column on the main display by default.
         let right = 15 + (isMain ? iconMargin : 0)
         let x = max(frame.minX + 15, frame.maxX - window.frame.width - right)
         window.setFrameTopLeftPoint(NSPoint(x: x, y: frame.maxY - 15))
-        view.needsDisplay = true
-        window.orderFrontRegardless()
-        if preview { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+    }
+
+    /// A theme whose size follows its content grows after a snapshot; follow it without touching
+    /// anything else about the windows (a preview window keeps its position and focus).
+    private func followThemeSize() {
+        guard renderer.size != appliedSize else { return }
+        let screens = NSScreen.screens
+        for (index, (window, screen)) in zip(windows, screens).enumerated() {
+            if preview { window.setContentSize(renderer.size); appliedSize = renderer.size }
+            else { place(window, on: screen, isMain: index == 0) }
+        }
     }
 
     private func startSampling() {
@@ -126,6 +144,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             Task { @MainActor [weak self] in
                 guard let self, self.generation == expected, !self.hidden, !self.sleeping else { return }
                 for view in self.views { view.update(snapshot) }
+                if self.windows.contains(where: { $0.occlusionState.contains(.visible) }) {
+                    self.renderer.prepare(snapshot: snapshot)
+                    self.followThemeSize()
+                }
                 self.sampleCount += 1
                 if self.diagnose, let data = try? self.encoder.encode(snapshot) {
                     FileHandle.standardOutput.write(data + Data([10]))
@@ -196,7 +218,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     let times = theme.luaMilliseconds.sorted()
                     let p50 = times.isEmpty ? 0 : times[times.count / 2]
                     let p95 = times.isEmpty ? 0 : times[min(times.count - 1, Int(Double(times.count - 1) * 0.95))]
-                    lua = " lua_evals=\(times.count) lua_p50_ms=\(String(format: "%.3f", p50)) lua_p95_ms=\(String(format: "%.3f", p95)) lua_error=\(theme.failure != nil)"
+                    let renders = theme.renderMilliseconds.sorted()
+                    let renderP50 = renders.isEmpty ? 0 : renders[renders.count / 2]
+                    let renderP95 = renders.isEmpty ? 0 : renders[min(renders.count - 1, Int(Double(renders.count - 1) * 0.95))]
+                    lua = " lua_evals=\(times.count) lua_p50_ms=\(String(format: "%.3f", p50)) lua_p95_ms=\(String(format: "%.3f", p95)) render_p50_ms=\(String(format: "%.3f", renderP50)) render_p95_ms=\(String(format: "%.3f", renderP95)) lua_error=\(theme.failure != nil)"
                 }
                 print("GUI_SUMMARY theme=\(renderer.name) samples=\(sampleCount) windows=\(windows.count) frames=\(frames) draws=\(values.count) skipped=\(views.map(\.skippedUpdates).reduce(0, +)) draw_p95_ms=\(String(format: "%.3f", p95)) mouse_passthrough=\(window.ignoresMouseEvents) level=\(window.level.rawValue)\(lua)")
             }

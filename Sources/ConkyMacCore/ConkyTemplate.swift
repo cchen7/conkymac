@@ -78,7 +78,7 @@ public enum ConkyFormat {
     }
 
     public static func uptime(_ seconds: Double, short: Bool) -> String {
-        let total = Int(max(0, seconds))
+        let total = seconds.isFinite ? Int(max(0, min(1e12, seconds))) : 0
         let (days, hours, minutes, rest) = (total / 86400, total / 3600 % 24, total / 60 % 60, total % 60)
         if short {
             if days > 0 { return "\(days)d \(hours)h" }
@@ -168,7 +168,7 @@ enum ConkyVariables {
             let efficiency = core >= 1 && core <= kinds.count ? kinds[core - 1] == "E" : false
             let megahertz = (efficiency ? values.frequency?.efficiencyMHz : values.frequency?.performanceMHz) ?? 0
             return name == "freq" ? String(format: "%.0f", megahertz) : String(format: "%.2f", megahertz / 1000)
-        case "acpitemp": return values.temperature.map { String(Int($0.rounded())) } ?? "0"
+        case "acpitemp": return values.temperature.map { String(Int(max(-273, min(1000, $0.rounded())))) } ?? "0"
         case "top", "top_mem": return top(byMemory: name == "top_mem", tokens, values, settings)
         default: return nil
         }

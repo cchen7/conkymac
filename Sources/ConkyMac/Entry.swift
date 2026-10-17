@@ -101,6 +101,8 @@ struct ConkyMacMain {
         let id = theme ?? "simple"
         let renderer: ThemeRenderer = ThemeLibrary.builtIn(id, fixedTimeZone: true)
             ?? LuaTheme(path: id, fixedDate: Snapshot.fixture.sampledAt, scale: CGFloat(scale), diagnostics: diagnostics)
+        // A theme sized by its content settles its size on the first snapshot.
+        renderer.prepare(snapshot: .fixture)
         let size = renderer.size
         guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width) * scale,
                                             pixelsHigh: Int(size.height) * scale, bitsPerSample: 8,

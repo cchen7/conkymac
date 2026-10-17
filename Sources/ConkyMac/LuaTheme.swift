@@ -7,7 +7,12 @@ protocol ThemeRenderer: AnyObject {
     var size: NSSize { get }
     var name: String { get }
     func draw(snapshot: Snapshot?, history: [Double?], background: Bool)
+    /// Called with each new snapshot while a panel is visible, before the views redraw, so a theme
+    /// whose size depends on its content can settle it first. Most themes have nothing to do.
+    func prepare(snapshot: Snapshot?)
 }
+
+extension ThemeRenderer { func prepare(snapshot: Snapshot?) {} }
 
 /// Themes are identified by a built-in id or an absolute Conky Lua .conf path.
 /// User themes live in ~/Library/Application Support/ConkyMac/Themes/<name>/<name>.conf.
@@ -66,19 +71,24 @@ private final class TemplateContext {
     init(diagnostics: Bool) { self.diagnostics = diagnostics }
 
     func evaluate(_ text: String) -> String {
-        ConkyTemplate.evaluate(text, values: values) { name in
-            guard warned.count < 256, warned.insert(name).inserted, diagnostics else { return }
-            FileHandle.standardError.write(Data("ConkyMac: unsupported conky_parse variable: \(name)\n".utf8))
-        }
+        ConkyTemplate.evaluate(text, values: values) { note($0) }
+    }
+
+    /// Reports an unsupported or blocked variable once each (with --diagnostics).
+    func note(_ name: String) {
+        guard warned.count < 256, warned.insert(name).inserted, diagnostics else { return }
+        FileHandle.standardError.write(Data("ConkyMac: unsupported conky variable: \(name)\n".utf8))
     }
 }
 
-/// A Conky Lua/Cairo theme. The hooks run once per snapshot into a bitmap shared by all views.
-/// conky.text is not rendered; only lua_draw_hook_pre/post output appears.
+/// A Conky theme: `conky.text` and/or Lua/Cairo draw hooks. Everything is drawn once per snapshot
+/// into a bitmap shared by all views, in Conky's order: pre hook, text, post hook.
 @MainActor
 final class LuaTheme: ThemeRenderer {
-    let size: NSSize
+    /// Fixed for hook-only themes; grows with the text for `conky.text` themes.
+    private(set) var size: NSSize
     let name: String
+    private let text: ConkyTextRenderer?
     private let handle: LuaHandle
     private let template: TemplateContext
     private let fixedDate: Date?
@@ -89,6 +99,8 @@ final class LuaTheme: ThemeRenderer {
     private var renderedScale: CGFloat = 0
     private(set) var failure: String?
     private(set) var luaMilliseconds: [Double] = []
+    /// Whole render per snapshot: text layout, hooks and the bitmap.
+    private(set) var renderMilliseconds: [Double] = []
     // Fixed renders behave like a long-running instance: some scripts skip their first update.
     private var updates: Int
 
@@ -106,12 +118,27 @@ final class LuaTheme: ThemeRenderer {
             return result.isEmpty ? nil : strdup(result)
         }, context, fixedDate?.timeIntervalSince1970 ?? -1, 250))
         if let pointer = handle.pointer {
-            size = NSSize(width: Int(conky_lua_width(pointer)), height: Int(conky_lua_height(pointer)))
+            var entries: [String: String] = [:]
+            for index in 0..<conky_lua_config_count(pointer) {
+                entries[String(cString: conky_lua_config_key(pointer, index))] = String(cString: conky_lua_config_value(pointer, index))
+            }
+            let source = String(cString: conky_lua_text(pointer))
+            text = source.contains { !$0.isWhitespace } ? ConkyTextRenderer(text: source, settings: ConkySettings(config: entries)) : nil
+            let hooks = entries["lua_draw_hook_pre"] != nil || entries["lua_draw_hook_post"] != nil
+            let luaSize = NSSize(width: Int(conky_lua_width(pointer)), height: Int(conky_lua_height(pointer)))
+            // A text-only theme is as big as its text; a Lua theme keeps its minimum_width/height.
+            size = text.map { hooks ? NSSize(width: max(luaSize.width, $0.size.width), height: max(luaSize.height, $0.size.height)) : $0.size } ?? luaSize
             report(String(cString: conky_lua_error(pointer)))
         } else {
+            text = nil
             size = NSSize(width: 300, height: 300)
             report("Out of memory while opening \(path)")
         }
+    }
+
+    func prepare(snapshot: Snapshot?) {
+        let scale = fixedScale ?? max(2, NSScreen.screens.map(\.backingScaleFactor).max() ?? 2)
+        if image == nil || renderedSequence != (snapshot?.sequence ?? 0) || renderedScale != scale { render(snapshot, scale: scale) }
     }
 
     func draw(snapshot: Snapshot?, history: [Double?], background: Bool) {
@@ -135,9 +162,20 @@ final class LuaTheme: ThemeRenderer {
     }
 
     private func render(_ snapshot: Snapshot?, scale: CGFloat) {
+        let renderStart = ProcessInfo.processInfo.systemUptime
+        defer {
+            if renderMilliseconds.count >= 600 { renderMilliseconds.removeFirst() }
+            renderMilliseconds.append((ProcessInfo.processInfo.systemUptime - renderStart) * 1000)
+        }
         renderedSequence = snapshot?.sequence ?? 0
         renderedScale = scale
         guard let pointer = handle.pointer else { return }
+        updates += 1
+        let values = ConkyValues(snapshot: snapshot, date: fixedDate ?? Date(), utc: fixedDate != nil, updates: updates)
+        template.values = values
+        // Text first: its size decides the bitmap.
+        let layout = text?.layout(values: values) { [template] in template.note($0) }
+        if let text { size = NSSize(width: max(size.width, text.size.width), height: max(size.height, text.size.height)) }
         let width = Int((size.width * scale).rounded()), height = Int((size.height * scale).rounded())
         if bitmap?.width != width || bitmap?.height != height {
             bitmap = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
@@ -149,15 +187,20 @@ final class LuaTheme: ThemeRenderer {
         }
         guard let bitmap else { report("Cannot allocate a \(width)x\(height) bitmap"); return }
         bitmap.clear(CGRect(origin: .zero, size: size))
-        updates += 1
-        template.values = ConkyValues(date: fixedDate ?? Date(), utc: fixedDate != nil, cpu: snapshot?.cpuFraction, cores: snapshot?.coreFractions,
-                                      memory: snapshot?.memory?.fraction, storage: snapshot?.storage?.fraction,
-                                      battery: snapshot?.battery?.fraction, uptime: snapshot?.uptime, updates: updates)
-        let start = ProcessInfo.processInfo.systemUptime
-        let status = conky_lua_draw(pointer, bitmap)
+        var luaTime = 0.0
+        func timed(_ call: () -> Int32) -> Int32 {
+            let start = ProcessInfo.processInfo.systemUptime
+            defer { luaTime += (ProcessInfo.processInfo.systemUptime - start) * 1000 }
+            return call()
+        }
+        let pre = timed { conky_lua_draw_pre(pointer, bitmap) }
+        var message = pre == 0 ? "" : String(cString: conky_lua_error(pointer))
+        if let text, let layout { text.draw(layout, in: bitmap) }
+        // A failed pre hook still lets the text show; the post hook is skipped so the error stays.
+        if pre == 0, timed({ conky_lua_draw_post(pointer, bitmap) }) != 0 { message = String(cString: conky_lua_error(pointer)) }
         if luaMilliseconds.count >= 600 { luaMilliseconds.removeFirst() }
-        luaMilliseconds.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
-        report(status == 0 ? "" : String(cString: conky_lua_error(pointer)))
+        luaMilliseconds.append(luaTime)
+        report(message)
         image = bitmap.makeImage()
     }
 

@@ -13,6 +13,7 @@ let package = Package(
         .target(name: "ConkyMacCore", dependencies: ["CSystemPrivate"]),
         .executableTarget(name: "ConkyMac", dependencies: ["ConkyMacCore", "ConkyLuaBridge"]),
         .testTarget(name: "ConkyMacCoreTests", dependencies: ["ConkyMacCore"]),
+        .testTarget(name: "ConkyMacTests", dependencies: ["ConkyMac", "ConkyMacCore"]),
         .testTarget(name: "ConkyLuaBridgeTests", dependencies: ["ConkyLuaBridge"])
     ]
 )

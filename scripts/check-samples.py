@@ -32,7 +32,7 @@ for before, after in zip(rows, rows[1:]):
     assert cores is None or all(0 <= value <= 1 for value in cores)
     processes = after.get("processes")
     if processes is not None:
-        assert 0 < len(processes) <= 5, "Process ranking should hold 1...5 entries"
+        assert 0 < len(processes) <= 10, "Process ranking should hold 1...10 entries"
         cpus = [item["cpuPercent"] for item in processes]
         assert cpus == sorted(cpus, reverse=True), "Processes not ranked by CPU"
         assert all(item["name"] and item["memoryBytes"] >= 0 for item in processes)
