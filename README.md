@@ -26,7 +26,7 @@ zsh scripts/validate.sh --gui
 
 命令行选项：`--probe 5` 输出真实样本，`--render /tmp/simple.png` 输出固定输入 PNG，`--scale 1|2` 指定像素倍率，`--smoke 15` 运行 GUI 后自动退出，`--icon-margin N` 调整主显示器为桌面图标预留的右边距（0–600pt，默认 120）。`--theme ID|PATH` 选择内置主题（`simple-plus`、`simple`、`minimalis`）或 Conky Lua `.conf`（覆盖菜单保存的选择但不写入；与 `--render` 合用输出该主题的固定输入 PNG，`--render` 不带 `--theme` 时渲染 Simple），`--diagnostics` 额外在 stderr 报告未支持的 `conky_parse` 变量。`--interface en0` 可指定网络接口；默认使用系统主接口，可能是 VPN。`SESSION UP/DOWN` 只累计应用有效采样区间的所选接口流量，暂停区间不补算。
 
-`CONKYMAC_BUILD_DIR` 可指定隔离构建目录。`validate.sh` 遇到指标不可用会以非零状态结束，不能将沙箱里的部分成功当成完整通过。天气、日历、GPU 占用、Conky 文本模板（`conky.text`）渲染和完整桌面行为矩阵仍待实现。温度与频率依赖私有接口（SMC、IOReport），只在 M4 Max / macOS 27 验证过，其他芯片可能显示 N/A。
+`CONKYMAC_BUILD_DIR` 可指定隔离构建目录。`validate.sh` 遇到指标不可用会以非零状态结束，不能将沙箱里的部分成功当成完整通过。天气、日历、GPU 占用、Conky 文本模板（`conky.text`）渲染和完整桌面行为矩阵仍待实现。温度与频率依赖私有接口（SMC、IOReport），键表和频率表按 Stats 为 M1–M5 各代的做法选择，但只在 M4 Max / macOS 27 上用硬件验证过，其他芯片可能显示 N/A；运行 `ConkyMac --sensors` 可打印本机的传感器键与频率表用于排查。
 
 ## 打包发布（DMG）
 

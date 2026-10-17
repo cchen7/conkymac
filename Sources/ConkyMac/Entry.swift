@@ -9,6 +9,7 @@ private struct Options {
     var scale = 2
     var interface: String?
     var diagnose = false
+    var sensors = false
     var iconMargin = 120.0
     /// A built-in theme id or an absolute Conky Lua .conf path; nil keeps the menu choice.
     var theme: String?
@@ -25,6 +26,7 @@ private struct Options {
             switch flag {
             case "--preview": preview = true
             case "--diagnostics": diagnose = true
+            case "--sensors": sensors = true
             case "--interface": interface = try value()
             case "--icon-margin":
                 guard let number = Double(try value()), (0...600).contains(number) else { throw CLIError.usage("Icon margin must be 0...600 points") }
@@ -58,11 +60,15 @@ private enum CLIError: Error { case usage(String); case render; case lua(String)
 struct ConkyMacMain {
     @MainActor static func main() {
         if CommandLine.arguments.contains("--help") {
-            print("ConkyMac [--preview] [--interface en0] [--diagnostics]\n  --probe N       Print N real snapshots at 1 Hz, then exit\n  --smoke N       Run the GUI for N snapshots, then exit\n  --render PATH   Save a fixed-input PNG (dark preview background)\n  --scale 1|2     PNG pixel scale (default: 2)\n  --icon-margin N Extra right margin on the main display for desktop icons (default: 120)\n  --theme ID|PATH Built-in theme (simple-plus, simple, minimalis) or Conky Lua .conf (overrides the menu choice; also used by --render)")
+            print("ConkyMac [--preview] [--interface en0] [--diagnostics]\n  --sensors       Print what the temperature/frequency readers see on this Mac, then exit\n  --probe N       Print N real snapshots at 1 Hz, then exit\n  --smoke N       Run the GUI for N snapshots, then exit\n  --render PATH   Save a fixed-input PNG (dark preview background)\n  --scale 1|2     PNG pixel scale (default: 2)\n  --icon-margin N Extra right margin on the main display for desktop icons (default: 120)\n  --theme ID|PATH Built-in theme (simple-plus, simple, minimalis) or Conky Lua .conf (overrides the menu choice; also used by --render)")
             return
         }
         do {
             let options = try Options(Array(CommandLine.arguments.dropFirst()))
+            if options.sensors {
+                print(sensorDiagnostics())
+                return
+            }
             if let count = options.probe {
                 let collector = SystemCollector(interface: options.interface)
                 let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601

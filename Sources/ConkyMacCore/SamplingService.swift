@@ -40,3 +40,6 @@ public final class SamplingService: @unchecked Sendable {
         }
     }
 }
+
+/// Text report of what the sensor readers see on this Mac (for unverified chips).
+public func sensorDiagnostics() -> String { SensorCollector().diagnostics() }

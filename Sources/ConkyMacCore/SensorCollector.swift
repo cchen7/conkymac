@@ -40,10 +40,64 @@ enum SensorMath {
         return active > 0 ? clusters.reduce(0.0) { $0 + $1.megahertz * $1.active } / active : nil
     }
 
-    /// CPU cluster sensors (16 keys on M4 Max). Their maximum matched the maximum of all
-    /// ~67 per-core Tp0*/Te0* keys idle, under load and cooling, at a quarter of the reads.
-    static func isCPUTemperatureKey(_ name: String) -> Bool {
-        name.hasPrefix("Tpx") || name.hasPrefix("Tex")
+    /// Chip generation from the CPU brand string ("Apple M4 Max" -> 4); nil if unparsable.
+    static func generation(of brand: String) -> Int? {
+        guard let range = brand.range(of: "Apple M") else { return nil }
+        return Int(brand[range.upperBound...].prefix { $0.isNumber })
+    }
+
+    /// CPU temperature keys for one chip, as exelban/stats lists them per generation
+    /// (Modules/CPU/readers.swift). M4 adds the Tpx*/Tex* cluster sensors, whose maximum matched the
+    /// maximum of all ~67 per-core keys idle, under load and cooling on M4 Max (measured; M4 Max is
+    /// the only chip checked on hardware). One list per chip, because a key means different things
+    /// on different generations and any reading in 10...120 would raise the hottest value.
+    /// An unparsable or newer chip tries the M5 list plus Tpx/Tex; `--sensors` shows what it finds.
+    static func cpuTemperatureKeys(forChip brand: String) -> (prefixes: [String], names: Set<String>) {
+        let m5 = ["Tp00", "Tp04", "Tp08", "Tp0C", "Tp0G", "Tp0K", "Tp0O", "Tp0R", "Tp0U", "Tp0X", "Tp0a",
+                  "Tp0d", "Tp0g", "Tp0j", "Tp0m", "Tp0p", "Tp0u", "Tp0y"]
+        switch generation(of: brand) {
+        case 1: return ([], ["Tp09", "Tp0T", "Tp01", "Tp05", "Tp0D", "Tp0H", "Tp0L", "Tp0P", "Tp0X", "Tp0b"])
+        case 2: return ([], ["Tp1h", "Tp1t", "Tp1p", "Tp1l", "Tp01", "Tp05", "Tp09", "Tp0D", "Tp0X", "Tp0b", "Tp0f", "Tp0j"])
+        case 3: return ([], ["Te05", "Te0L", "Te0P", "Te0S", "Tf04", "Tf09", "Tf0A", "Tf0B", "Tf0D", "Tf0E",
+                             "Tf44", "Tf49", "Tf4A", "Tf4B", "Tf4D", "Tf4E"])
+        case 4: return (["Tpx", "Tex"], ["Te05", "Te09", "Te0H", "Te0S", "Tp01", "Tp05", "Tp09", "Tp0D", "Tp0V", "Tp0Y", "Tp0b", "Tp0e"])
+        case 5: return ([], Set(m5))
+        default: return (["Tpx", "Tex"], Set(m5))
+        }
+    }
+
+    static func isCPUTemperatureKey(_ name: String, chip: String) -> Bool {
+        let keys = cpuTemperatureKeys(forChip: chip)
+        return keys.names.contains(name) || keys.prefixes.contains { name.hasPrefix($0) }
+    }
+
+    /// IOReport "CPU Complex Performance States" channels and the pmgr tables that describe them.
+    /// M5 splits P cores into PCPU ("super", voltage-states5) and MCPU ("performance",
+    /// voltage-states22); earlier chips have only PCPU on voltage-states5. Stats' only fallback is
+    /// MCPU -> voltage-states5 (M6). A table is used only if its length matches the channel's states,
+    /// so a wrong guess shows N/A rather than a plausible number.
+    static func clusterChannel(_ name: String) -> (efficiency: Bool, tables: [String])? {
+        if name.hasPrefix("ECPU") { return (true, ["voltage-states1-sram"]) }
+        if name.hasPrefix("PCPU") { return (false, ["voltage-states5-sram"]) }
+        if name.hasPrefix("MCPU") { return (false, ["voltage-states22-sram", "voltage-states5-sram"]) }
+        return nil
+    }
+
+    /// First candidate table whose length fits the channel's states.
+    static func resolve(states: [(name: String, residency: Int64)], tables: [String: [Double]], candidates: [String])
+        -> (table: String, megahertz: Double, active: Double)? {
+        for key in candidates {
+            if let table = tables[key], let cluster = cluster(states: states, table: table) {
+                return (key, cluster.megahertz, cluster.active)
+            }
+        }
+        return nil
+    }
+
+    /// Device-tree cluster-type to the two kinds the panel shows. M5 reports E, M ("performance")
+    /// and P ("super"); both M and P count as performance.
+    static func coreKind(clusterType: String) -> Character? {
+        switch clusterType { case "E": "E"; case "P", "M": "P"; default: nil }
     }
 
     /// GPU die sensors (44 on M4 Max, several pairs offset by a constant); hottest, like CPU.
@@ -64,25 +118,40 @@ final class SensorCollector {
     private var subscription: IOReportSubscriptionRef?
     private var subscribed: CFMutableDictionary?
     private var previous: CFDictionary?
-    private let efficiencyTable: [Double]
-    private let performanceTable: [Double]
+    private let dvfsTables: [String: [Double]]
+    private let chip: String
     private(set) var frequencyIssue: String?
 
     init() {
+        var brand = [CChar](repeating: 0, count: 128)
+        var brandSize = brand.count
+        sysctlbyname("machdep.cpu.brand_string", &brand, &brandSize, nil, 0)
+        chip = String(decoding: brand.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSMC"))
         if service != 0 {
             if IOServiceOpen(service, mach_task_self_, 0, &smc) != kIOReturnSuccess { smc = 0 }
             IOObjectRelease(service)
         }
-        let pmgr = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceNameMatching("pmgr"))
-        func table(_ name: String) -> [Double] {
-            guard pmgr != 0, let value = IORegistryEntryCreateCFProperty(pmgr, name as CFString, kCFAllocatorDefault, 0)?
-                .takeRetainedValue(), let data = value as? Data else { return [] }
-            return SensorMath.dvfsTable(data)
+        // pmgr holds the tables; newer chips also expose a pmgr-child node.
+        var tables: [String: [Double]] = [:]
+        for node in ["pmgr", "pmgr-child"] {
+            var iterator: io_iterator_t = 0
+            guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceNameMatching(node), &iterator) == KERN_SUCCESS else { continue }
+            defer { IOObjectRelease(iterator) }
+            while case let entry = IOIteratorNext(iterator), entry != 0 {
+                defer { IOObjectRelease(entry) }
+                var properties: Unmanaged<CFMutableDictionary>?
+                guard IORegistryEntryCreateCFProperties(entry, &properties, kCFAllocatorDefault, 0) == KERN_SUCCESS,
+                      let dictionary = properties?.takeRetainedValue() as? [String: Any] else { continue }
+                // Every voltage-states* table is kept so --sensors can show unknown numbering; as in
+                // Stats, a later node (pmgr-child) overrides an earlier one.
+                for (key, value) in dictionary where key.hasPrefix("voltage-states") {
+                    let table = (value as? Data).map(SensorMath.dvfsTable) ?? []
+                    if !table.isEmpty { tables[key] = table }
+                }
+            }
         }
-        efficiencyTable = table("voltage-states1-sram")
-        performanceTable = table("voltage-states5-sram")
-        if pmgr != 0 { IOObjectRelease(pmgr) }
+        dvfsTables = tables
         if let channels = IOReportCopyChannelsInGroup("CPU Stats" as CFString, "CPU Complex Performance States" as CFString, 0, 0, 0),
            let mutable = CFDictionaryCreateMutableCopy(kCFAllocatorDefault, 0, channels) {
             var out: Unmanaged<CFMutableDictionary>?
@@ -91,12 +160,65 @@ final class SensorCollector {
             subscribed = out?.takeRetainedValue()
         }
         if subscription == nil { frequencyIssue = "Frequency: IOReport subscription unavailable" }
-        else if efficiencyTable.isEmpty || performanceTable.isEmpty { frequencyIssue = "Frequency: pmgr DVFS tables unavailable" }
+        else if dvfsTables.isEmpty { frequencyIssue = "Frequency: pmgr DVFS tables unavailable" }
     }
 
     deinit { if smc != 0 { IOServiceClose(smc) } }
 
     func resetBaseline() { previous = nil }
+
+    /// Plain-text dump for checking a chip this app has not been verified on: chip, core types,
+    /// DVFS tables, IOReport channel states, SMC temperature keys and what was selected.
+    func diagnostics() -> String {
+        var lines: [String] = []
+        lines.append("chip: \(chip) (generation \(SensorMath.generation(of: chip).map(String.init) ?? "unknown")), macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
+        let types = SystemCollector.readRawCoreTypes()
+        let counts = Dictionary(grouping: types.values, by: { $0 }).mapValues(\.count)
+        lines.append("cores: \(types.count) logical; cluster-type counts \(counts.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "))")
+        for (key, table) in dvfsTables.sorted(by: { $0.key < $1.key }) {
+            lines.append("dvfs \(key): \(table.count) states, \(Int(table.first ?? 0))...\(Int(table.last ?? 0)) MHz")
+        }
+        if dvfsTables.isEmpty { lines.append("dvfs: no voltage-states tables found in pmgr/pmgr-child") }
+        if let subscription, let subscribed, let sample = IOReportCreateSamples(subscription, subscribed, nil),
+           let channels = (sample as NSDictionary)["IOReportChannels"] as? [CFDictionary] {
+            for channel in channels {
+                let name = IOReportChannelGetChannelName(channel) as String? ?? "?"
+                let states = (0..<IOReportStateGetCount(channel)).map { IOReportStateGetNameForIndex(channel, $0) as String? ?? "?" }
+                let match = SensorMath.clusterChannel(name).map { kind in
+                    SensorMath.resolve(states: states.map { ($0, 1) }, tables: dvfsTables, candidates: kind.tables)?.table ?? "NO TABLE MATCH"
+                } ?? "ignored"
+                lines.append("ioreport \(name): \(states.count) states [\(states.joined(separator: " "))] -> \(match)")
+            }
+        } else {
+            lines.append("ioreport: CPU Complex Performance States unavailable")
+        }
+        if smc == 0 {
+            lines.append("smc: AppleSMC could not be opened")
+        } else if let count = readBytes(Self.fourCC("#KEY")), count.bytes.count >= 4 {
+            let total = count.bytes.prefix(4).reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+            lines.append("smc: \(total) keys; temperature-like keys (T*, float) with value; * = CPU choice, g = GPU choice")
+            let float = Self.fourCC("flt ")
+            var shown: [String] = []
+            for index in 0..<min(total, 10_000) {
+                var input = SMCKeyData()
+                input.data8 = 8
+                input.data32 = index
+                guard let key = call(input)?.key else { continue }
+                let name = Self.name(key)
+                guard name.hasPrefix("T"), let value = readBytes(key), value.info.dataType == float, value.info.dataSize == 4 else { continue }
+                let reading = Double(value.bytes.withUnsafeBytes { $0.loadUnaligned(as: Float32.self) })
+                let mark = SensorMath.isCPUTemperatureKey(name, chip: chip) ? "*" : (SensorMath.isGPUTemperatureKey(name) ? "g" : "")
+                shown.append("\(name)\(mark)=\(String(format: "%.1f", reading))")
+            }
+            lines.append(shown.joined(separator: " "))
+        } else {
+            lines.append("smc: key count unreadable")
+        }
+        let temperatures = self.temperatures()
+        lines.append("result: cpu \(temperatures.cpu.map { String(format: "%.1f C", $0) } ?? "N/A"), gpu \(temperatures.gpu.map { String(format: "%.1f C", $0) } ?? "N/A")")
+        lines.append("frequency issue: \(frequencyIssue ?? "none")")
+        return lines.joined(separator: "\n")
+    }
 
     /// Delta since the previous call, so the 1 Hz sampler needs no extra sleep. nil on the first call.
     func frequency() -> CPUFrequency? {
@@ -108,17 +230,17 @@ final class SensorCollector {
         var efficiency: [(megahertz: Double, active: Double)] = []
         var performance: [(megahertz: Double, active: Double)] = []
         for channel in channels {
-            guard let name = IOReportChannelGetChannelName(channel) as String? else { continue }
-            let isEfficiency = name.hasPrefix("ECPU")
-            guard isEfficiency || name.hasPrefix("PCPU") else { continue }
+            guard let name = IOReportChannelGetChannelName(channel) as String?, let kind = SensorMath.clusterChannel(name) else { continue }
             let states = (0..<IOReportStateGetCount(channel)).map {
                 (name: IOReportStateGetNameForIndex(channel, $0) as String? ?? "", residency: IOReportStateGetResidency(channel, $0))
             }
-            guard let cluster = SensorMath.cluster(states: states, table: isEfficiency ? efficiencyTable : performanceTable) else {
-                frequencyIssue = "Frequency: \(name) states do not match the DVFS table"
+            guard let match = SensorMath.resolve(states: states, tables: dvfsTables, candidates: kind.tables) else {
+                let tables = dvfsTables.map { "\($0.key)=\($0.value.count)" }.sorted().joined(separator: ", ")
+                frequencyIssue = "Frequency: \(name) has \(states.count) states, no DVFS table matches (\(tables))"
                 return nil
             }
-            if isEfficiency { efficiency.append(cluster) } else { performance.append(cluster) }
+            let cluster = (megahertz: match.megahertz, active: match.active)
+            if kind.efficiency { efficiency.append(cluster) } else { performance.append(cluster) }
         }
         guard !efficiency.isEmpty || !performance.isEmpty else { return nil }
         return CPUFrequency(efficiencyMHz: SensorMath.merge(efficiency), performanceMHz: SensorMath.merge(performance))
@@ -172,7 +294,7 @@ final class SensorCollector {
             input.data32 = index
             guard let key = call(input)?.key else { continue }
             let name = Self.name(key)
-            let cpu = SensorMath.isCPUTemperatureKey(name)
+            let cpu = SensorMath.isCPUTemperatureKey(name, chip: chip)
             guard cpu || SensorMath.isGPUTemperatureKey(name),
                   let value = readBytes(key), value.info.dataType == float, value.info.dataSize == 4 else { continue }
             if cpu { keys.cpu.append(key) } else { keys.gpu.append(key) }

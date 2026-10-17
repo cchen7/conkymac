@@ -114,8 +114,11 @@ import Testing
 }
 
 @Test func temperatureKeysAndHottest() {
-    #expect(["Tpx8", "TpxD", "Tex0", "Tex3"].allSatisfy(SensorMath.isCPUTemperatureKey))
-    #expect(!["Tp01", "Te05", "Tp1i", "Tp2X", "Tg1U"].contains(where: SensorMath.isCPUTemperatureKey))
+    let m4Max = "Apple M4 Max"
+    #expect(["Tpx8", "TpxD", "Tex0", "Tex3"].allSatisfy { SensorMath.isCPUTemperatureKey($0, chip: m4Max) })
+    // Stats' M4 list applies too; the offset-style Tp1i/Tp2X, GPU keys and other chips' lists do not.
+    #expect(["Tp01", "Te05"].allSatisfy { SensorMath.isCPUTemperatureKey($0, chip: m4Max) })
+    #expect(!["Tp1i", "Tp2X", "Tg1U", "Tp00", "Tf04"].contains { SensorMath.isCPUTemperatureKey($0, chip: m4Max) })
     #expect(SensorMath.isGPUTemperatureKey("Tg1U") && !SensorMath.isGPUTemperatureKey("Tpx8"))
     #expect(SensorMath.hottest([40, 46.4, 43.1, -4, 130]) == 46.4)
     #expect(SensorMath.hottest([1.5, 0]) == nil)
@@ -138,4 +141,31 @@ import Testing
     collector.detailsWanted = true
     // Becoming visible refreshes immediately instead of waiting for the next 5 s slot.
     #expect(collector.sample().processes?.isEmpty == false)
+}
+
+@Test func m5CoreLayoutAndKeysAreRecognized() {
+    // M5 renames the P cores: device-tree types are E, M (performance) and P (super).
+    #expect(SensorMath.coreKind(clusterType: "E") == "E")
+    #expect(SensorMath.coreKind(clusterType: "P") == "P" && SensorMath.coreKind(clusterType: "M") == "P")
+    #expect(SensorMath.coreKind(clusterType: "X") == nil)
+    // Stats' M5 CPU keys (Tp00, Tp0O, ...) and the earlier generations' named keys are CPU keys.
+    // Key lists are per chip: M5's Tp00... only on M5 (and unknown newer chips), M1-M4 keys not there.
+    #expect(SensorMath.generation(of: "Apple M5") == 5 && SensorMath.generation(of: "Apple M4 Max") == 4)
+    #expect(SensorMath.generation(of: "Intel(R) Core(TM) i9") == nil)
+    #expect(["Tp00", "Tp0O", "Tp0y"].allSatisfy { SensorMath.isCPUTemperatureKey($0, chip: "Apple M5") })
+    #expect(!["Tp01", "Te05", "Tf04", "Tpx3", "Tg0U", "TB0T"].contains { SensorMath.isCPUTemperatureKey($0, chip: "Apple M5") })
+    #expect(SensorMath.isCPUTemperatureKey("Tf04", chip: "Apple M3 Pro") && SensorMath.isCPUTemperatureKey("Tp1h", chip: "Apple M2"))
+    #expect(SensorMath.isCPUTemperatureKey("Tp00", chip: "Apple M7") && SensorMath.isCPUTemperatureKey("Tpx3", chip: "Apple M7"))
+    #expect(SensorMath.clusterChannel("ECPU")?.efficiency == true)
+    // PCPU only ever pairs with states5, as in Stats; MCPU may fall back to it.
+    #expect(SensorMath.clusterChannel("PCPU1")?.tables == ["voltage-states5-sram"])
+    #expect(SensorMath.clusterChannel("MCPU")?.tables.first == "voltage-states22-sram")
+    #expect(SensorMath.clusterChannel("PCPM") == nil && SensorMath.clusterChannel("ECPM_IDLE") == nil)
+    // A channel whose states fit only the second candidate table still resolves; none fitting is nil.
+    let states: [(name: String, residency: Int64)] = [("DOWN", 0), ("IDLE", 5), ("V0P2", 10), ("V1P1", 10), ("V2P0", 10)]
+    let tables = ["a": [1.0, 2.0], "b": [1000.0, 2000.0, 3000.0]]
+    let fit = SensorMath.resolve(states: states, tables: tables, candidates: ["a", "b"])
+    #expect(fit?.table == "b" && fit?.megahertz == 2000)
+    #expect(SensorMath.resolve(states: states, tables: tables, candidates: ["a"]) == nil)
+    #expect(SensorMath.resolve(states: states, tables: tables, candidates: ["missing"]) == nil)
 }

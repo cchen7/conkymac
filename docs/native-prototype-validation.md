@@ -143,9 +143,20 @@
 - `scripts/package-dmg.sh`：Developer ID Application（Team `S426CS9PRN`）、Hardened Runtime、无 entitlement；app 与 DMG 分别公证并钉票据。团队首次提交排队超过 30 分钟后 Accepted；之后两次提交各在数分钟内 Accepted，日志无 issue。
 - 加隔离属性模拟下载后：DMG 与其中 app 的 `spctl` 均为 `accepted, source=Notarized Developer ID`，`stapler validate` 通过，权限 755，挂载运行采样正常。
 
+## M5 兼容修复（0.1.1，2026-10-15）
+
+用户在 M5 MacBook Air 上安装 0.1.0，CPU 温度显示 N/A。原因：温度键只认 M4 Max 上实测的 `Tpx*`/`Tex*`，M5 使用 `Tp00`、`Tp04`…；频率代码也只认 `ECPU`/`PCPU` 与 `voltage-states1/5`，M5 另有 `MCPU` 通道、`voltage-states22` 表，且 device tree 的 `cluster-type` 多出 "M"（Stats 把 M5 分为 efficiency / performance(M) / super(P)）。
+
+- 温度键按芯片代际选择（brand string 解析 `Apple M<n>`），采用 Stats 各代 CPU 列表；M4 为 `Tpx*`/`Tex*` 并上 Stats 的 M4 列表；未知/更新的芯片用 M5 列表加 `Tpx`/`Tex`。每代单独一份，避免别代的键在本代读出 10–120 之间的无关数值而抬高最大值。
+- 频率：`ECPU`→states1；`PCPU`→states5；`MCPU`→states22，回退 states5（Stats 对 M6 的做法）；只有“去掉 IDLE/DOWN/OFF 后状态数 = 表长”才采用，否则显示 N/A 并报 issue。M 与 P 簇按活跃驻留合并为界面上的 “P”。`pmgr`、`pmgr-child` 都遍历，后者覆盖前者。核心类型 "M" 计入 P。
+- `ConkyMac --sensors` 打印芯片、核心类型、全部 `voltage-states*` 表、IOReport 通道状态与匹配到的表、所有 `T*` 浮点 SMC 键（`*` 为选中的 CPU 键）和最终结果，供在未验证的芯片上取证。
+- 审查（采纳）：PCPU 不再回退 states22（Stats 无此配对，可能给出“合理但错误”的数字）；键表按芯片选取；没有 E 核的芯片不再因缺 states1 关闭频率。
+- M4 Max 回归：`*` 选中 25 个键，闲置/8 进程满载/冷却时最大值 84.1/67.8/54.5 °C，与只看 `Tpx*`/`Tex*` 的 84.1/67.8/54.3 °C 一致（末项差 0.2 °C 来自两次读取的时间差）；频率与簇占用不变。
+- **未在 M5 硬件上验证**：以上按 Stats 源码实现，没有 M5 设备。M5 上的实际键名与表需用 `--sensors` 的输出确认。
+
 ### 仍未验证
 
-菜单栏 Hide/Show/Quit 与 Theme 切换的实际点击；温度/频率与活动监视器或 `powermetrics` 的对照；Spaces 逐个切换、显示器热插拔/重排、Stage Manager；真实休眠/唤醒；Instruments profile；长时间（小时级）内存曲线；macOS 14 实机。Quit 路径仅经 `--smoke` 结束时的 `NSApp.terminate` 验证。
+M5（及 M1–M3、M4 非 Max）的温度与频率实际读数；菜单栏 Hide/Show/Quit 与 Theme 切换的实际点击；温度/频率与活动监视器或 `powermetrics` 的对照；Spaces 逐个切换、显示器热插拔/重排、Stage Manager；真实休眠/唤醒；Instruments profile；长时间（小时级）内存曲线；macOS 14 实机。Quit 路径仅经 `--smoke` 结束时的 `NSApp.terminate` 验证。
 
 ## 恢复前原定顺序（已执行 1–3 的可自动部分）
 

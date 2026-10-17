@@ -161,24 +161,31 @@ public final class SystemCollector {
 
     /// "P"/"E" per logical CPU id from IODeviceTree:/cpus, rather than assuming E cores come first.
     private static func readCoreKinds() -> [Int: Character]? {
+        let kinds = readRawCoreTypes().compactMapValues(SensorMath.coreKind(clusterType:))
+        return kinds.isEmpty ? nil : kinds
+    }
+
+    /// Raw device-tree cluster-type ("E", "P", and "M" on M5) per logical CPU id.
+    static func readRawCoreTypes() -> [Int: String] {
         let cpus = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/cpus")
-        guard cpus != 0 else { return nil }
+        guard cpus != 0 else { return [:] }
         defer { IOObjectRelease(cpus) }
         var iterator: io_iterator_t = 0
-        guard IORegistryEntryGetChildIterator(cpus, kIODeviceTreePlane, &iterator) == KERN_SUCCESS else { return nil }
+        guard IORegistryEntryGetChildIterator(cpus, kIODeviceTreePlane, &iterator) == KERN_SUCCESS else { return [:] }
         defer { IOObjectRelease(iterator) }
-        var kinds: [Int: Character] = [:]
+        var kinds: [Int: String] = [:]
         while case let entry = IOIteratorNext(iterator), entry != 0 {
             defer { IOObjectRelease(entry) }
             func property(_ key: String) -> Any? {
                 IORegistryEntryCreateCFProperty(entry, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
             }
             // cluster-type is data ("E"/"P"); logical-cpu-id is a number.
-            guard let type = (property("cluster-type") as? Data)?.first,
+            guard let type = (property("cluster-type") as? Data).flatMap({ String(data: $0, encoding: .utf8) })?
+                    .trimmingCharacters(in: .controlCharacters),
                   let id = (property("logical-cpu-id") as? NSNumber)?.intValue else { continue }
-            kinds[id] = Character(UnicodeScalar(type))
+            kinds[id] = type
         }
-        return kinds.isEmpty ? nil : kinds
+        return kinds
     }
 
     private func readCores() -> [CPUTicks]? {
