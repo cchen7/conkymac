@@ -125,3 +125,21 @@ private func texts(_ layout: TextLayout) -> [Placed] {
     #expect(placed.count == 1) // "[][]" only; nothing the commands could have produced
     #expect(reported.count == 2)
 }
+
+@MainActor @Test func hugeRulesAndBarsAreBounded() {
+    // A finite but absurd width used to make the stippled-rule loop run ~1e300 times.
+    let theme = renderer("${stippled_hr 1 1 1e300}\n${hr 1e300 1e300}\n${cpubar 1e300,1e300}\n${tab 1e300 1e300}x\n${cpugraph 1e300,1e300}y")
+    let layout = theme.layout(values: values)
+    let start = Date()
+    let context = CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 256,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    theme.draw(layout, in: context)
+    #expect(Date().timeIntervalSince(start) < 2)
+    for primitive in layout.primitives {
+        switch primitive {
+        case .rule(let rect, _, _), .bar(let rect, _, _): #expect(rect.width <= 1520 && rect.height <= 3000)
+        default: break
+        }
+    }
+    #expect(theme.size.width <= 1511 && theme.size.height <= 3010)
+}

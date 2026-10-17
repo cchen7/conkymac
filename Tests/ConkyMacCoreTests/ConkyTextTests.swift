@@ -186,3 +186,24 @@ private extension Array where Element == ConkyNode {
     #expect(ConkyFontSpec("Mono:size=99999").pixelSize == 200 && ConkyFontSpec("Mono:size=0").pixelSize == 1)
     #expect(ConkyFontSpec("Mono:size=nan").pixelSize.isFinite)
 }
+
+@Test func malformedFontSpecsDoNotTrap() {
+    // Empty properties used to leave split() with no elements and then index pair[0].
+    for specification in ["Mono::bold", "Mono:=", "Mono:=x", "Mono:::", ":", "::", "=", ":size=", "Mono:size=:bold", ""] {
+        let spec = ConkyFontSpec(specification)
+        #expect(spec.pixelSize.isFinite && spec.pixelSize >= 1)
+    }
+    #expect(ConkyFontSpec("Mono::bold").bold)
+}
+
+@Test func nonFiniteLayoutArgumentsAreDropped() {
+    let result = ConkyText.lines(ConkyTextParser.parse("${hr nan inf}${stippled_hr inf nan 5}${tab nan inf}x"),
+                                 values: fixtureValues, settings: ConkySettings())
+    for item in result[0] {
+        switch item.kind {
+        case .rule(let height, let width, let stipple): #expect(height.isFinite && width.isFinite && (stipple ?? 1).isFinite)
+        case .tab(let width, let start): #expect(width.isFinite && start.isFinite)
+        default: break
+        }
+    }
+}

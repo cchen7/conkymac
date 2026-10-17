@@ -27,6 +27,9 @@ final class ConkyTextRenderer {
     private static let maxWidth = 1500.0, maxHeight = 3000.0
     /// Cursor positions are clamped to ±this, far outside any bitmap but safe to hand to CoreGraphics.
     private static let far = 100_000.0
+    /// Longest a rule, bar, graph or tab may be and tallest a bar or rule: wider than any window.
+    private static let reach = maxWidth + 20
+    private static let tallest = maxHeight
     private var fonts: [String: LoadedFont] = [:]
     private var lines: [String: CTLine] = [:]
 
@@ -74,7 +77,12 @@ final class ConkyTextRenderer {
                 if let stipple {
                     // Dashes one pixel long with `stipple` pixels between them.
                     var x = rect.minX
-                    while x < rect.maxX { context.fill(CGRect(x: x, y: rect.minY, width: min(1, rect.maxX - x), height: rect.height)); x += 1 + stipple }
+                    // The dashes are bounded by the rule's width, which place() caps; bound the count too.
+                    var dashes = 0
+                    while x < rect.maxX && dashes < 4096 {
+                        context.fill(CGRect(x: x, y: rect.minY, width: min(1, rect.maxX - x), height: rect.height))
+                        x += 1 + stipple; dashes += 1
+                    }
                 } else { context.fill(rect) }
                 context.restoreGState()
             case .bar(let rect, let fraction, let color):
@@ -129,25 +137,28 @@ final class ConkyTextRenderer {
                 case .alignRight(let n): if let areaRight { cursorX = areaRight - rest - n }
                 case .alignCenter(let n): if let width { cursorX = inset + (width - rest) / 2 - n }
                 case .tab(let step, let start):
+                    let step = min(max(1, step), Self.reach), start = min(max(0, start), Self.reach)
                     let relative = cursorX - inset
                     cursorX = relative < start ? inset + start : cursorX + step - (relative - start).truncatingRemainder(dividingBy: step)
                 case .rule(let height, let ruleWidth, let stipple):
-                    let length = ruleWidth > 0 ? ruleWidth : max(0, (areaRight ?? cursorX) - cursorX)
-                    primitives.append(.rule(CGRect(x: cursorX, y: cursorY - ascent / 4, width: length, height: height), color: item.style.color, stipple: stipple))
+                    let length = min(Self.reach, ruleWidth > 0 ? ruleWidth : max(0, (areaRight ?? cursorX) - cursorX))
+                    primitives.append(.rule(CGRect(x: cursorX, y: cursorY - ascent / 4, width: length, height: min(height, Self.tallest)),
+                                            color: item.style.color, stipple: stipple.map { min($0, Self.reach) }))
                     cursorX += length
-                case .bar(let fraction, let height, let barWidth):
-                    let length = barWidth > 0 ? barWidth : max(0, (areaRight ?? cursorX) - cursorX - 1)
+                case .bar(let fraction, let barHeight, let barWidth):
+                    let height = min(barHeight, Self.tallest)
+                    let length = min(Self.reach, barWidth > 0 ? barWidth : max(0, (areaRight ?? cursorX) - cursorX - 1))
                     var top = cursorY - ascent / 2 - 1
                     if height < font.ascent + font.descent { top -= height / 2 - 1 } else { growth = max(growth, height - (font.ascent + font.descent)) }
                     primitives.append(.bar(CGRect(x: cursorX, y: top, width: length, height: height), fraction: fraction, color: item.style.color))
                     cursorX += length
-                case .graph(let height, let graphWidth):
-                    cursorX += graphWidth > 0 ? graphWidth : max(0, (areaRight ?? cursorX) - cursorX - 1)
-                    growth = max(growth, height - (font.ascent + font.descent))
+                case .graph(let graphHeight, let graphWidth):
+                    cursorX += min(Self.reach, graphWidth > 0 ? graphWidth : max(0, (areaRight ?? cursorX) - cursorX - 1))
+                    growth = max(growth, min(graphHeight, Self.tallest) - (font.ascent + font.descent))
                 }
                 right = max(right, cursorX)
             }
-            cursorY += lastDescent + growth
+            cursorY = min(Self.far, cursorY + lastDescent + growth)
         }
         return (primitives, right, cursorY)
     }

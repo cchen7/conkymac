@@ -232,7 +232,7 @@ public enum ConkyText {
             var height: Double?, width: Double?, rest: [String] = []
             for token in tokens {
                 let parts = token.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
-                if parts.count <= 2, !token.isEmpty, parts.allSatisfy({ $0.isEmpty || Double($0) != nil }), token.first != "/" {
+                if parts.count <= 2, !token.isEmpty, parts.allSatisfy({ $0.isEmpty || number($0) != nil }), token.first != "/" {
                     if parts.count == 1 { height = number(parts[0]) } else { height = number(parts[0]); width = number(parts[1]) }
                 } else { rest.append(token) }
             }
@@ -274,13 +274,13 @@ public enum ConkyText {
                 case "alignr": add(.alignRight(number(tokens.first) ?? 1))
                 case "alignc": add(.alignCenter(number(tokens.first) ?? 0))
                 case "tab":
-                    let values = tokens.compactMap(Double.init)
+                    let values = tokens.compactMap { number($0) }
                     add(values.count >= 2 ? .tab(width: max(1, values[0]), start: values[1]) : .tab(width: 10, start: values.first ?? 10))
                 case "hr":
-                    let values = tokens.compactMap(Double.init)
+                    let values = tokens.compactMap { number($0) }
                     add(.rule(height: max(1, values.first ?? 1), width: values.count > 1 ? values[1] : 0, stipple: nil))
                 case "stippled_hr":
-                    let values = tokens.compactMap(Double.init)
+                    let values = tokens.compactMap { number($0) }
                     add(.rule(height: max(1, values.count > 1 ? values[1] : 1), width: values.count > 2 ? values[2] : 0,
                               stipple: max(1, values.first ?? 1)))
                 case "cpubar", "membar", "swapbar", "fs_bar", "battery_bar":
@@ -373,7 +373,9 @@ public struct ConkyFontSpec: Equatable, Sendable {
         family = fixedFamily ?? (head.split(separator: ",").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? "")
         for property in parts.dropFirst() {
             let pair = property.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
-            switch (pair[0], pair.count > 1 ? pair[1] : nil) {
+            // "Mono::bold" and "Mono:=x" have empty properties: no key, nothing to apply.
+            guard let key = pair.first, !key.isEmpty else { continue }
+            switch (key, pair.count > 1 ? pair[1] : nil) {
             case ("bold", nil): bold = true
             case ("italic", nil), ("oblique", nil): italic = true
             case ("size", let value?): points = Double(value) ?? points; pixels = nil
