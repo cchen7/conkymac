@@ -152,7 +152,12 @@
 - `ConkyMac --sensors` 打印芯片、核心类型、全部 `voltage-states*` 表、IOReport 通道状态与匹配到的表、所有 `T*` 浮点 SMC 键（`*` 为选中的 CPU 键）和最终结果，供在未验证的芯片上取证。
 - 审查（采纳）：PCPU 不再回退 states22（Stats 无此配对，可能给出“合理但错误”的数字）；键表按芯片选取；没有 E 核的芯片不再因缺 states1 关闭频率。
 - M4 Max 回归：`*` 选中 25 个键，闲置/8 进程满载/冷却时最大值 84.1/67.8/54.5 °C，与只看 `Tpx*`/`Tex*` 的 84.1/67.8/54.3 °C 一致（末项差 0.2 °C 来自两次读取的时间差）；频率与簇占用不变。
-- **M5 实机确认**：用户在 M5 MacBook Air 上安装 0.1.1 后反馈温度与频率显示正常（口头确认，未提供 `--sensors` 输出和具体数值，也未与活动监视器对照）。具体 SMC 键名、DVFS 表长与通道状态数因此仍未记录；M1–M3 与 M4 非 Max 尚无人验证。
+- **M5 实机确认**：用户在 M5 MacBook Air（macOS 27.0.1，闲置）上安装 0.1.1，反馈温度与频率正常，并提供了 `--sensors` 输出：
+  - 芯片 Apple M5，10 核，`cluster-type` 为 E=6、P=4，**没有 "M"**（基础款 M5 只有 E 与 P；M 类核心只可能出现在 Pro/Max，未验证）。
+  - DVFS 表：`voltage-states1-sram` 8 级 972–3048 MHz、`voltage-states5-sram` 19 级 1308–4464 MHz；**没有 `voltage-states22`**。IOReport 只有 `ECPU`（9 个状态，无 DOWN，首项 IDLE）与 `PCPU`（20 个状态），无 `MCPU`、`PCPU1`；去掉 IDLE 后状态数 8/19 等于表长，`frequency issue: none`。也就是说基础款 M5 的频率走的是原有的 states1/states5 路径，`states22`/`MCPU` 分支在这台上没被用到。
+  - SMC：2430 个键。选中 11 个 `Tp0*`（`Tp00 Tp04 Tp0C Tp0G Tp0O Tp0R Tp0X Tp0a Tp0p Tp0u Tp0y`，39.8–42.0 °C），结果 CPU 42.0 °C；Stats 列表里的 `Tp08 Tp0K Tp0U Tp0d Tp0g Tp0j Tp0m` 在此机不存在。P 核键在 M5 上能读到低于 40 的值，不像 M4 Max 被钳在 40。GPU 选中 `Tg*` 共 23 个，最大 39.8 °C。
+  - 未选中但存在的：`Te04 Te08 Te0C Te0R`（43.9/43.2/42.9/41.7 °C，按 M4 Max 的经验是 E 核传感器，此刻高于被选中的 P 核键）、`Tp12 Tp16 Tp1E`（≈41 °C）。M5 的 E 核较多（6 个），E 核满载时本应用的 CPU 温度可能低于实际最热点。是否纳入 `Te0*` 需要 M5 负载测试（E 核/P 核分别加压，看哪些键随之上升）后再定。
+  - 仍无数值对照（活动监视器、`powermetrics`），频率数值本身未提供。M1–M3 与 M4 非 Max 尚无人验证。
 
 ### 仍未验证
 
