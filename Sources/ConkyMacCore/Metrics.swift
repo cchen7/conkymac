@@ -36,6 +36,14 @@ public struct Network: Codable, Sendable {
     public let sessionDownloadBytes: Double
 }
 
+/// uname fields as Conky's $sysname, $kernel (release), $machine and $nodename.
+public struct HostIdentity: Codable, Sendable, Equatable {
+    public let sysname: String
+    public let release: String
+    public let machine: String
+    public let nodename: String
+}
+
 /// Immutable, app-wide input. nil means unavailable or waiting for a baseline.
 /// Rates use monotonic time; sampledAt is wall time for display and diagnostics.
 public struct Snapshot: Codable, Sendable {
@@ -43,10 +51,13 @@ public struct Snapshot: Codable, Sendable {
     public let sampledAt: Date
     public let systemVersion: String
     public let kernel: String
+    public let host: HostIdentity
     public let uptime: Double?
     public let cpuFraction: Double?
     /// Per logical core, in host_processor_info order; nil until a baseline exists.
     public let coreFractions: [Double]?
+    /// "E"/"P" per logical core, index = logical id; nil if the device tree is unreadable.
+    public let coreKinds: String?
     public let clusterLoad: ClusterLoad?
     public let loadAverage: [Double]?
     public let temperatureCelsius: Double?
@@ -66,9 +77,11 @@ public struct Snapshot: Codable, Sendable {
 
     public static let fixture = Snapshot(
         sequence: 1, sampledAt: Date(timeIntervalSince1970: 1778077020), systemVersion: "macOS 14.0",
-        kernel: "Darwin 23.0.0 on arm64", uptime: 29_321,
+        kernel: "Darwin 23.0.0 on arm64",
+        host: HostIdentity(sysname: "Darwin", release: "23.0.0", machine: "arm64", nodename: "macbook.local"), uptime: 29_321,
         cpuFraction: 0.14,
         coreFractions: [0.31, 0.22, 0.18, 0.12, 0.09, 0.07, 0.15, 0.04, 0.11, 0.06, 0.20, 0.03, 0.08, 0.13, 0.05, 0.10],
+        coreKinds: "EEEEPPPPPPPPPPPP",
         clusterLoad: ClusterLoad(performance: 0.11, efficiency: 0.21), loadAverage: [1.25, 1.41, 1.51],
         temperatureCelsius: 47, gpuTemperatureCelsius: 42, frequency: CPUFrequency(efficiencyMHz: 2_571, performanceMHz: 3_610),
         memory: Capacity(used: 23 * pow(1024, 3), total: 64 * pow(1024, 3), sampledAt: Date(timeIntervalSince1970: 1778077020)),

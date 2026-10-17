@@ -11,15 +11,20 @@ public final class SystemCollector {
         let version = ProcessInfo.processInfo.operatingSystemVersion
         return "macOS \(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
     }()
-    private let kernel: String = {
+    private let identity: HostIdentity = {
         var info = utsname()
         uname(&info)
         func text<T>(_ field: T) -> String {
             withUnsafeBytes(of: field) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
         }
-        return "\(text(info.sysname)) \(text(info.release)) on \(text(info.machine))"
+        return HostIdentity(sysname: text(info.sysname), release: text(info.release), machine: text(info.machine),
+                            nodename: text(info.nodename))
     }()
+    private var kernel: String { "\(identity.sysname) \(identity.release) on \(identity.machine)" }
     private let coreKinds = SystemCollector.readCoreKinds()
+    private lazy var coreKindString: String? = coreKinds.map { kinds in
+        String((0..<((kinds.keys.max() ?? -1) + 1)).map { kinds[$0] ?? "?" })
+    }
     private let requestedInterface: String?
     private let bootDate: Date?
     private var previousCPU: CPUTicks?
@@ -89,7 +94,7 @@ public final class SystemCollector {
         issues += slowIssues
         // ps costs ~26 ms of CPU in the child per run, so refresh the ranking every 5 seconds.
         if detailsWanted && started >= nextProcessSample {
-            processes = ProcessTable.read(limit: 5)
+            processes = ProcessTable.read(limit: 10)
             nextProcessSample = started + 5
         }
         if detailsWanted && processes == nil { issues.append("Processes: /bin/ps unavailable") }
@@ -107,9 +112,9 @@ public final class SystemCollector {
         if detailsWanted && temperature == nil { issues.append("Temperature: SMC core sensors unavailable") }
         var load = [Double](repeating: 0, count: 3)
         let loadAverage = getloadavg(&load, 3) == 3 ? load : nil
-        return Snapshot(sequence: sequence, sampledAt: now, systemVersion: systemVersion, kernel: kernel,
+        return Snapshot(sequence: sequence, sampledAt: now, systemVersion: systemVersion, kernel: kernel, host: identity,
                         uptime: bootDate.map { max(0, now.timeIntervalSince($0)) }, cpuFraction: cpu,
-                        coreFractions: coreFractions,
+                        coreFractions: coreFractions, coreKinds: coreKindString,
                         clusterLoad: coreFractions.flatMap { fractions in coreKinds.flatMap { ClusterLoad.from(fractions, kinds: $0) } },
                         loadAverage: loadAverage, temperatureCelsius: temperature, gpuTemperatureCelsius: gpuTemperature,
                         frequency: frequency, memory: memory, swap: readSwap(at: now), storage: storage, battery: battery,
