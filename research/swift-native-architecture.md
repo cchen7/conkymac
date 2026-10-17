@@ -168,8 +168,18 @@ Lua `longjmp`、panic 与宿主语言栈也是实现边界：脚本入口使用�
 
 ### 后果与兼容性
 
-- 兼容性按函数逐个实现：已支持路径、弧、贝塞尔、矩形、线型、填充规则、纯色与线性/径向渐变、变换、save/restore、paint。**文字 API、clip、image surface、operator、dash、图片绘制尚未实现**；调用未实现的 `cairo_*`/`CAIRO_*` 名称报出明确错误。很多 Conky 主题依赖文字，需按主题继续补齐。
+- 兼容性按函数逐个实现：已支持路径、弧、贝塞尔、矩形、线型、填充规则、纯色与线性/径向渐变、变换、save/restore、paint，以及（2026-10-17 追加）文字、clip、operator 子集与 dash，见下节。**image surface、图片绘制、`cairo_mask`、`set_font_matrix`、缩放字体与其余 operator 尚未实现**；调用未实现的 `cairo_*`/`CAIRO_*` 名称报出明确错误。
 - 抗锯齿、渐变插值与 Cairo 不保证逐像素一致；以目视对比脚本意图为准。
 - `conky.text` 不渲染；`conky_parse` 只实现首批模板变量（见 README）。逐核 CPU 来自 `Snapshot.coreFractions`。
 - 测量（Apple M4 Max，Release，2× 位图）：rings + Air Clock 组合主题与 `arcs` 测试主题的 GUI 烟测中，每次 Lua 钩子 p50 2.6–6.6 ms、p95 4.2–8.2 ms（1 Hz，主线程，含光栅化），运行间波动明显；尚未 profile，也未尝试移到后台队列。
+
+### 文字、clip、operator 与 dash（2026-10-17）
+
+- **字体**：不在 `GState` 里存字体对象，只存 family/slant/weight/size；`struct ConkyLua` 里有 32 项的 LRU 字体缓存（键为 family+slant+weight+size，`CTFontRef` 由缓存持有，`conky_lua_close` 在 `lua_close` 之后释放）。没有全局或静态可变状态，Swift Testing 并行跑测试互不影响。`sans`→系统字体、`serif`→Times、`monospace`→Menlo；粗体/斜体经 `CTFontCreateCopyWithSymbolicTraits`，取不到回退基础字体，斜体取不到与 oblique 用倾斜变换（约 12°）合成。
+- **文字**：逐字符 `CTFontGetGlyphsForCharacters` + `CTFontGetAdvancesForGlyphs`，无字距与连字；缺字符先用 `CTFontCreateForString` 的后备字体（一次调用内复用上一个后备字体）。字形轮廓变换为 `Scale(1,-1) · Translate(x+pen, y) · ctm`（基准上下文 y 向下、轮廓 y 向上；`y` 是基线，不加 ascent），输出到临时 `CGPath` 后复用 `fill` 的代码（`fill` 现在接收路径，纯色、渐变、clip、operator 对文字同样生效）。`show_text` 把当前点移到 `x + advance`，该点存在 `Context` 的 pending 字段里而不是往路径追加 `moveto`，持久 `cairo_t` 反复 `show_text` 路径不增长；其他路径操作需要子路径时再把它落成 `move_to`。`text_path` 受 20 万个路径元素的计数上限约束（`cairo_new_path`/`fill`/`stroke` 后清零）。
+- **tolua 结构体**：已对照上游 `lua/cairo.pkg` 与 `doc/lua.yaml`：Conky 用 `cairo_text_extents_t:create()`、`cairo_font_extents_t:create()` 创建，并建议配合 `tolua.takeownership/releaseownership`；本实现用普通表（不加元表）。仓库 `Local/conky` 里没有调用它们的示例脚本，调用方式只对照了文档。
+- **clip**：CGContext 状态不跨操作保留，所以每个 `GState` 持有一条引用计数的不可变链表 `{路径(帧空间), eofill, parent}`，`save` 加一次引用、`restore`/销毁/`__gc` 释放（迭代释放，无递归），每次绘制在第一个 `CGContextSaveGState` 后重放整条链；上限 64 层，空路径用零矩形裁掉全部。
+- **不可信主题的限制**：文本 ≤ 4 KiB 且必须是合法 UTF-8，字号有限且在 (0, 1e4]，任何变换后 CTM 有限、可逆、分量 ≤ 1e15，字形路径元素有上限，字体缓存 LRU 有界，虚线段数估算有上限；所有 CF/CG 对象都在 `luaL_error` 之前释放，参数类型在分配之前检查；文字调用在预算耗尽时自行报超时（4 KiB 字符串在 CoreText 里要数毫秒，不能只靠每 10000 条指令的计数钩子）。持久 `cairo_t` 从不 stroke/fill 时，`move_to/line_to/curve_to` 的路径仍会像 cairo 一样增长且未设上限；只有文字路径有计数上限。
+- **已知的系统开销**：用 C 小程序单独测过，`CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, …)`、`CTFontCreateWithName(".AppleSystemUIFont", …)` 与 `CTFontCreateCopyWithAttributes` 创建系统字体时，每次创建 CoreText 内部残留约 130–150 字节（调用 `CFRelease` 后 `phys_footprint` 仍线性增长；`CTFontCreateWithName("Helvetica", …)` 不增长）。字体缓存让正常主题只在首次使用某个 family/size 组合时创建一次；反复用大量不同字号抖动缓存（>32 种）的脚本才会累积，在时间预算内约为每帧数百 KB 量级，未做进一步缓解。
+- **已知差异**：`text_extents` 不计倾斜变换；描边文字轮廓时字体里重叠的轮廓（如某些 `i` 的点与竖）会露出内部边线（`Tests/Fixtures/lua/text/` 的渐变描边文字可见）；operator 只有五种；文字抗锯齿、字形与 cairo/FreeType 不保证逐像素一致。
 
