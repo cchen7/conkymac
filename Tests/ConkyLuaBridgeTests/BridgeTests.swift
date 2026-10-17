@@ -158,3 +158,76 @@ function conky_test()
     #expect(theme.error.isEmpty, "\(theme.error)")
 }
 
+
+private func openTheme(_ conf: String, script: String? = nil) throws -> OpaquePointer {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("conkymac-bridge-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    if let script { try script.write(to: folder.appendingPathComponent("test.lua"), atomically: true, encoding: .utf8) }
+    try conf.write(to: folder.appendingPathComponent("test.conf"), atomically: true, encoding: .utf8)
+    let opened = conky_lua_open(folder.appendingPathComponent("test.conf").path, { _, _ in nil }, nil, -1, 250)
+    return try #require(opened)
+}
+
+@Test func textOnlyThemesOpenWithoutScripts() throws {
+    let theme = try openTheme("""
+    conky.config = { font = 'Roboto Mono:size=7', minimum_width = 220, draw_shades = false, uppercase = true,
+                     color1 = '#1793d1', top_name_width = 12, nested = { 1 }, fn = print, 'positional' }
+    conky.text = [[
+    ${color1}hello $alignr world
+    ]]
+    """)
+    defer { conky_lua_close(theme) }
+    #expect(String(cString: conky_lua_error(theme)) == "")
+    #expect(String(cString: conky_lua_text(theme)) == "${color1}hello $alignr world\n")
+    var entries: [String: String] = [:]
+    for index in 0..<conky_lua_config_count(theme) {
+        entries[String(cString: conky_lua_config_key(theme, index))] = String(cString: conky_lua_config_value(theme, index))
+    }
+    // Strings, numbers and booleans come through as text; tables, functions and integer keys do not.
+    #expect(entries == ["font": "Roboto Mono:size=7", "minimum_width": "220", "draw_shades": "false", "uppercase": "true",
+                        "color1": "#1793d1", "top_name_width": "12"])
+    #expect(String(cString: conky_lua_config_key(theme, 99)) == "")
+    // No hooks: drawing is a no-op rather than an error.
+    let context = try #require(CGContext(data: nil, width: 10, height: 10, bitsPerComponent: 8, bytesPerRow: 40,
+                                         space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    #expect(conky_lua_draw_pre(theme, context) == 0 && conky_lua_draw_post(theme, context) == 0)
+}
+
+@Test func themesNeedTextOrAHook() throws {
+    let theme = try openTheme("conky.config = { font = 'x' }\nconky.text = [[   ]]")
+    defer { conky_lua_close(theme) }
+    #expect(String(cString: conky_lua_error(theme)).contains("neither lua_draw_hook_pre nor lua_draw_hook_post"))
+    let huge = try openTheme("conky.config = {}\nconky.text = string.rep('x', 70000)")
+    defer { conky_lua_close(huge) }
+    #expect(String(cString: conky_lua_error(huge)).contains("conky.text is longer than"))
+}
+
+@Test func preAndPostHooksRunSeparately() throws {
+    let theme = try openTheme("""
+    conky.config = { lua_load = 'test.lua', lua_draw_hook_pre = 'first', lua_draw_hook_post = 'second' }
+    conky.text = [[text between]]
+    """, script: """
+    local function mark(x)
+      local cr = cairo_create(cairo_xlib_surface_create(conky_window.display, conky_window.drawable, conky_window.visual, 100, 80))
+      cairo_set_source_rgba(cr, 0, 0, 0, 1)
+      cairo_rectangle(cr, x, 10, 10, 10)
+      cairo_fill(cr)
+      cairo_destroy(cr)
+    end
+    function conky_first() mark(10) end
+    function conky_second() mark(60) end
+    """)
+    defer { conky_lua_close(theme) }
+    #expect(String(cString: conky_lua_error(theme)) == "")
+    let context = try #require(CGContext(data: nil, width: 100, height: 80, bitsPerComponent: 8, bytesPerRow: 400,
+                                         space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    context.translateBy(x: 0, y: 80); context.scaleBy(x: 1, y: -1)
+    func alpha(_ x: Int, _ y: Int) -> UInt8 { context.data!.load(fromByteOffset: y * 400 + x * 4 + 3, as: UInt8.self) }
+    #expect(conky_lua_draw_pre(theme, context) == 0)
+    #expect(alpha(15, 15) == 255 && alpha(65, 15) == 0) // only the pre hook has run
+    #expect(conky_lua_draw_post(theme, context) == 0)
+    #expect(alpha(15, 15) == 255 && alpha(65, 15) == 255)
+    // conky_lua_draw still runs both, in order.
+    context.clear(CGRect(x: 0, y: 0, width: 100, height: 80))
+    #expect(conky_lua_draw(theme, context) == 0 && alpha(15, 15) == 255 && alpha(65, 15) == 255)
+}

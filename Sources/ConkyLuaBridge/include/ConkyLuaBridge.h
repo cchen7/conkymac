@@ -22,6 +22,17 @@ int conky_lua_height(const ConkyLua *lua);
 /// Calls the pre and post draw hooks. The context's user space must be y-down Conky pixels.
 /// Returns 0 on success; otherwise conky_lua_error describes the failure.
 int conky_lua_draw(ConkyLua *lua, CGContextRef context);
+/// The same hooks one at a time, so a renderer can draw conky.text between them as Conky does
+/// (pre hook, text, post hook). A theme without that hook returns 0 without running anything.
+int conky_lua_draw_pre(ConkyLua *lua, CGContextRef context);
+int conky_lua_draw_post(ConkyLua *lua, CGContextRef context);
+/// conky.text with its line breaks, or "" when the theme has none. Valid until conky_lua_close.
+const char *conky_lua_text(const ConkyLua *lua);
+/// The scalar conky.config entries (strings, numbers and booleans, as text), at most 256, keys
+/// up to 64 and values up to 1024 bytes. Valid until conky_lua_close.
+int conky_lua_config_count(const ConkyLua *lua);
+const char *conky_lua_config_key(const ConkyLua *lua, int index);
+const char *conky_lua_config_value(const ConkyLua *lua, int index);
 /// Empty string when the last open/draw succeeded.
 const char *conky_lua_error(const ConkyLua *lua);
 void conky_lua_close(ConkyLua *_Nullable lua);

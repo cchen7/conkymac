@@ -89,6 +89,54 @@ static void string_field(lua_State *L, const char *name, char *_Nullable *slot) 
     lua_pop(L, 1);
 }
 
+#define MAX_TEXT 65536
+#define MAX_CONFIG_ENTRIES 256
+#define MAX_CONFIG_KEY 64
+#define MAX_CONFIG_VALUE 1024
+
+/// True if the text has anything besides whitespace (`conky.text = [[ ]]` is common in Lua themes).
+static int has_content(const char *_Nullable text) {
+    return text && text[strspn(text, " \t\r\n")] != 0;
+}
+
+/// Copies the scalar entries of the table on top of the stack (conky.config). Anything else, and
+/// entries over the length limits, is skipped; the Swift side only looks up what it knows.
+static void copy_config(lua_State *L, ConkyLua *self) {
+    self->config_keys = calloc(MAX_CONFIG_ENTRIES, sizeof *self->config_keys);
+    self->config_values = calloc(MAX_CONFIG_ENTRIES, sizeof *self->config_values);
+    if (!self->config_keys || !self->config_values) return;
+    lua_pushnil(L);
+    while (lua_next(L, -2) != 0 && self->config_count < MAX_CONFIG_ENTRIES) {
+        // Key at -2 and value at -1; convert only copies so lua_next keeps working.
+        if (lua_type(L, -2) == LUA_TSTRING) {
+            size_t key_length = 0, value_length = 0;
+            const char *key = lua_tolstring(L, -2, &key_length);
+            const char *value = NULL;
+            int converted = 0;
+            char flag[8];
+            if (lua_type(L, -1) == LUA_TBOOLEAN) {
+                snprintf(flag, sizeof flag, "%s", lua_toboolean(L, -1) ? "true" : "false");
+                value = flag; value_length = strlen(flag);
+            } else if (lua_type(L, -1) == LUA_TSTRING || lua_type(L, -1) == LUA_TNUMBER) {
+                // Convert a copy (lua_next needs the original untouched) and keep it on the stack
+                // until the bytes are copied out.
+                lua_pushvalue(L, -1);
+                converted = 1;
+                value = lua_tolstring(L, -1, &value_length);
+            }
+            if (value && key_length > 0 && key_length <= MAX_CONFIG_KEY && value_length <= MAX_CONFIG_VALUE) {
+                char *key_copy = strndup(key, key_length), *value_copy = strndup(value, value_length);
+                if (key_copy && value_copy) {
+                    self->config_keys[self->config_count] = key_copy;
+                    self->config_values[self->config_count++] = value_copy;
+                } else { free(key_copy); free(value_copy); }
+            }
+            if (converted) lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+    }
+}
+
 // Themes are untrusted downloads: binary chunks can corrupt memory, so every loader is text-only.
 static const char *const hardening =
     "local load, loadfile = load, loadfile\n"
@@ -148,6 +196,19 @@ static int load_config(lua_State *L) {
     string_field(L, "lua_load", &self->lua_load);
     string_field(L, "lua_draw_hook_pre", &self->hook_pre);
     string_field(L, "lua_draw_hook_post", &self->hook_post);
+    copy_config(L, self);
+    // The conky table sits just below conky.config.
+    lua_getfield(L, -2, "text");
+    if (lua_type(L, -1) == LUA_TSTRING) {
+        size_t length;
+        const char *text = lua_tolstring(L, -1, &length);
+        if (length > MAX_TEXT) return luaL_error(L, "%s: conky.text is longer than %d bytes", path, MAX_TEXT);
+        free(self->text);
+        self->text = malloc(length + 1);
+        if (!self->text) return luaL_error(L, "out of memory");
+        memcpy(self->text, text, length + 1);
+    }
+    lua_pop(L, 1);
     return 0;
 }
 
@@ -306,12 +367,8 @@ static void run_hook(lua_State *L, const char *_Nullable spec) {
     lua_pop(L, 1);
 }
 
-static int draw_hooks(lua_State *L) {
-    ConkyLua *self = conky_self(L);
-    run_hook(L, self->hook_pre);
-    run_hook(L, self->hook_post);
-    return 0;
-}
+static int pre_hook(lua_State *L) { run_hook(L, conky_self(L)->hook_pre); return 0; }
+static int post_hook(lua_State *L) { run_hook(L, conky_self(L)->hook_post); return 0; }
 
 ConkyLua *conky_lua_open(const char *conf_path, ConkyParseCallback parse, void *parse_context,
                          double fixed_time, int budget_ms) {
@@ -333,27 +390,41 @@ ConkyLua *conky_lua_open(const char *conf_path, ConkyParseCallback parse, void *
     int status = protected_call(self, config, load_config, (void *)conf_path);
     lua_close(config);
     if (status != LUA_OK) return self;
-    if (!self->hook_pre && !self->hook_post) {
-        snprintf(self->error, sizeof self->error, "%s: conky.config sets neither lua_draw_hook_pre nor lua_draw_hook_post", conf_path);
+    if (!self->hook_pre && !self->hook_post && !has_content(self->text)) {
+        snprintf(self->error, sizeof self->error, "%s: the theme has no conky.text and sets neither lua_draw_hook_pre nor lua_draw_hook_post", conf_path);
         return self;
     }
+    // A text-only theme needs no script state.
+    if (!self->hook_pre && !self->hook_post) return self;
     self->L = new_state(self);
     if (!self->L) { snprintf(self->error, sizeof self->error, "cannot create a Lua state"); return self; }
     if (protected_call(self, self->L, setup_scripts, NULL) != LUA_OK) { lua_close(self->L); self->L = NULL; }
     return self;
 }
 
-int conky_lua_draw(ConkyLua *self, CGContextRef context) {
+static int draw_phase(ConkyLua *self, CGContextRef context, const char *_Nullable hook, lua_CFunction function) {
+    if (!hook) return 0;
     if (!self->L) {
         if (!self->error[0]) snprintf(self->error, sizeof self->error, "theme is not loaded");
         return 1;
     }
     self->context = context;
-    int status = protected_call(self, self->L, draw_hooks, NULL);
+    int status = protected_call(self, self->L, function, NULL);
     self->context = NULL;
     // Scripts often leak a cairo_t per frame; collect steadily so paths are released.
     lua_gc(self->L, LUA_GCSTEP, 0);
     return status != LUA_OK;
+}
+
+int conky_lua_draw_pre(ConkyLua *self, CGContextRef context) { return draw_phase(self, context, self->hook_pre, pre_hook); }
+int conky_lua_draw_post(ConkyLua *self, CGContextRef context) { return draw_phase(self, context, self->hook_post, post_hook); }
+
+int conky_lua_draw(ConkyLua *self, CGContextRef context) {
+    if (!self->hook_pre && !self->hook_post && !self->L) {
+        if (!self->error[0]) snprintf(self->error, sizeof self->error, "theme is not loaded");
+        return 1;
+    }
+    return conky_lua_draw_pre(self, context) != 0 || conky_lua_draw_post(self, context) != 0;
 }
 
 void conky_lua_close(ConkyLua *self) {
@@ -363,9 +434,20 @@ void conky_lua_close(ConkyLua *self) {
     if (self->L) lua_close(self->L);
     CGColorSpaceRelease(self->space);
     free(self->conf_dir); free(self->lua_load); free(self->hook_pre); free(self->hook_post);
+    free(self->text);
+    for (int index = 0; index < self->config_count; index++) { free(self->config_keys[index]); free(self->config_values[index]); }
+    free(self->config_keys); free(self->config_values);
     free(self);
 }
 
 int conky_lua_width(const ConkyLua *lua) { return lua->width; }
 int conky_lua_height(const ConkyLua *lua) { return lua->height; }
 const char *conky_lua_error(const ConkyLua *lua) { return lua->error; }
+const char *conky_lua_text(const ConkyLua *lua) { return lua->text ? lua->text : ""; }
+int conky_lua_config_count(const ConkyLua *lua) { return lua->config_count; }
+const char *conky_lua_config_key(const ConkyLua *lua, int index) {
+    return index >= 0 && index < lua->config_count ? lua->config_keys[index] : "";
+}
+const char *conky_lua_config_value(const ConkyLua *lua, int index) {
+    return index >= 0 && index < lua->config_count ? lua->config_values[index] : "";
+}

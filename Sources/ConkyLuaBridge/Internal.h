@@ -20,6 +20,10 @@ struct ConkyLua {
     int budget_ms;
     int width, height;
     char *_Nullable conf_dir, *_Nullable lua_load, *_Nullable hook_pre, *_Nullable hook_post;
+    // conky.text and the scalar conky.config entries, copied out for the Swift renderer.
+    char *_Nullable text;
+    char *_Nullable *_Nullable config_keys, *_Nullable *_Nullable config_values;
+    int config_count;
     char error[4096];
 };
 
