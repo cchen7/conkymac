@@ -12,8 +12,7 @@ The RAM accounting formula and 64-bit network counter approach in
 `SMC/smc.swift`, `Modules/CPU/readers.swift`, `Modules/CPU/bridge.h` and
 `Kit/plugins/SystemKit.swift` (SMC key reads, IOReport residency and pmgr DVFS
 tables); key selection and cluster averaging differ and are documented in
-`docs/native-prototype-validation.md`. No Stats UI, database, helper, or fan
-control is included.
+`docs/sensors.md`. No Stats UI, database, helper, or fan control is included.
 
 MIT License
 
@@ -76,17 +75,16 @@ public API documentation; no cairo code is included or linked.
 
 ## Simple-Conky-theme
 
-Visual reference selected by the user:
+Visual reference for the Simple and Simple Plus themes:
 https://github.com/Abs-30/Simple-Conky-theme at
 `5895d2e8b5e726f25db88826df252fad81bea3ed` (`Screenshot4.png`).
-The checkout has no top-level license declaration. This prototype contains a
-new native implementation inspired by the sidebar layout; no upstream scripts,
+The repository has no top-level license declaration. ConkyMac contains a new
+native implementation inspired by the sidebar layout; no upstream scripts,
 configuration, wallpaper, screenshots, or bundled fonts are redistributed.
-See `docs/simple-theme-migration.md` for scope and visual differences.
 
 ## Minimalis Conky
 
-Layout reference provided by the user: "Minimalis Conky 1.3" by archit3x
+Layout reference for the Minimalis theme: "Minimalis Conky 1.3" by archit3x
 (conky.conf, December 2020; header says "Feel free to modify this script").
 `Sources/ConkyMac/MinimalisTheme.swift` and the Simple Plus layout are new native
 implementations of its arrangement. Its configuration, `ConkySymbols.ttf` font
@@ -94,8 +92,9 @@ and screenshot are not redistributed.
 
 ## Conky
 
-Conky is a research and syntax reference. No Conky engine code is included in
-this native prototype; the Lua theme host follows Conky's documented script
-conventions (`conky_window`, `conky_parse`, `lua_load`, draw hooks). Future reuse
-must retain its applicable GPL/BSD notices. Third-party Conky themes are not
+Conky (GPL-3.0-or-later, with some BSD-licensed parts) is a syntax and behaviour
+reference. No Conky code is included: the Lua theme host follows Conky's
+documented script conventions (`conky_window`, `conky_parse`, `lua_load`, draw
+hooks), and the `conky.text` parser and layout were written independently to
+match Conky's behaviour. Third-party Conky themes are not
 redistributed.

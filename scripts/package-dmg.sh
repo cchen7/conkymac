@@ -3,11 +3,11 @@
 #   CONKYMAC_SIGN_IDENTITY   "Developer ID Application: …" (default: the only one in the keychain);
 #                            "-" rehearses with an ad-hoc signature and skips notarization
 #   CONKYMAC_NOTARY_PROFILE  notarytool keychain profile (default: conkymac-notary)
-#   CONKYMAC_DIST_DIR        output directory (default: ~/Local/my-proj-temp/conkymac/dist)
+#   CONKYMAC_DIST_DIR        output directory (default: $CONKYMAC_BUILD_DIR/dist)
 set -euo pipefail
 CONKYMAC_ROOT=${0:A:h:h}
 export CONKYMAC_BUILD_DIR=${CONKYMAC_BUILD_DIR:-/private/tmp/conkymac-build}
-DIST=${CONKYMAC_DIST_DIR:-$HOME/Local/my-proj-temp/conkymac/dist}
+DIST=${CONKYMAC_DIST_DIR:-$CONKYMAC_BUILD_DIR/dist}
 PROFILE=${CONKYMAC_NOTARY_PROFILE:-conkymac-notary}
 IDENTITY=${CONKYMAC_SIGN_IDENTITY:-}
 if [[ -z $IDENTITY ]]; then

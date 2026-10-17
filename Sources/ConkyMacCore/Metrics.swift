@@ -93,7 +93,7 @@ public struct Snapshot: Codable, Sendable {
         processes: [
             ProcessSample(pid: 407, name: "WindowServer", cpuPercent: 12.4, memoryBytes: 612 * pow(1024, 2)),
             ProcessSample(pid: 3735, name: "Google Chrome", cpuPercent: 7.1, memoryBytes: 1.4 * pow(1024, 3)),
-            ProcessSample(pid: 3027, name: "Surge", cpuPercent: 6.0, memoryBytes: 188 * pow(1024, 2)),
+            ProcessSample(pid: 3027, name: "Terminal", cpuPercent: 6.0, memoryBytes: 188 * pow(1024, 2)),
             ProcessSample(pid: 3760, name: "Google Chrome Helper (Renderer)", cpuPercent: 3.4, memoryBytes: 402 * pow(1024, 2)),
             ProcessSample(pid: 682, name: "Finder", cpuPercent: 2.0, memoryBytes: 96 * pow(1024, 2))
         ],
@@ -102,7 +102,7 @@ public struct Snapshot: Codable, Sendable {
             ProcessSample(pid: 23714, name: "Xcode", cpuPercent: 0.4, memoryBytes: 1.1 * pow(1024, 3)),
             ProcessSample(pid: 407, name: "WindowServer", cpuPercent: 12.4, memoryBytes: 612 * pow(1024, 2)),
             ProcessSample(pid: 3760, name: "Google Chrome Helper (Renderer)", cpuPercent: 3.4, memoryBytes: 402 * pow(1024, 2)),
-            ProcessSample(pid: 3027, name: "Surge", cpuPercent: 6.0, memoryBytes: 188 * pow(1024, 2))
+            ProcessSample(pid: 3027, name: "Terminal", cpuPercent: 6.0, memoryBytes: 188 * pow(1024, 2))
         ],
         processCount: 612, runningProcessCount: 3,
         issues: [], collectionMilliseconds: 0
