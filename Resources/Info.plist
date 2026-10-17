@@ -6,8 +6,8 @@
     <key>CFBundleIdentifier</key><string>io.github.cchen7.ConkyMac</string>
     <key>CFBundleName</key><string>ConkyMac</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.1.1</string>
-    <key>CFBundleVersion</key><string>2</string>
+    <key>CFBundleShortVersionString</key><string>0.2.0</string>
+    <key>CFBundleVersion</key><string>3</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
     <key>NSHumanReadableCopyright</key><string>ConkyMac. Third-party notices in Contents/Resources/THIRD_PARTY_NOTICES.md.</string>

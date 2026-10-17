@@ -34,7 +34,14 @@
 
 - 手动检查菜单 Hide/Show/Quit/Theme、Spaces 切换、热插拔、休眠/唤醒、Stage Manager。
 - Instruments profile、小时级内存曲线、macOS 14 实机、其他 Apple Silicon 型号的传感器映射。
-- Lua 文字 API、clip、`conky.text` 渲染；天气、日历、GPU 占用。P1/P2 不得标记完成。
+- 图表（`cpugraph` 等，当前只留出宽高）、天气、日历、GPU 占用。P1/P2 不得标记完成。
+
+### 0.2.0 开发状态（2026-10-17，分支 `feat/conky-text`，未推送、未发布）
+
+- 已完成：Lua 文字/clip/operator/dash（`feat/cairo-text` 已合入）、`conky.text` 解析求值与 CoreText 渲染、配置透传与 pre/post 钩子拆分、独立代码审查意见已修（`eec30e5`）。`Info.plist` 版本已改为 0.2.0（build 3），尚未打包。
+- 验证：测试核心 31 / 渲染 11 / 桥接 28 项通过（桥接另过 ASan+UBSan）；`validate.sh --gui` 通过；两个原版配置（Minimalis、Simple-Conky-theme，只在本机加载）双屏 90 s 烟测 CPU 约 2.2% 单核、RSS 约 77 MB；细节在 `docs/native-prototype-validation.md`。
+- 待用户：在自己的双屏桌面上对照原截图看版式；决定是否打包、公证、合并 main、推送与发布 0.2.0。图标字体需用户自己装进 `~/Library/Fonts`（不随应用分发）。
+- 临时 worktree `/private/tmp/conkymac-textapi`（分支 `feat/cairo-text`）已合入，尚未删除。
 
 ### 构建与证据
 
