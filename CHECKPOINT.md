@@ -28,6 +28,8 @@
 - 发布：`scripts/package-dmg.sh` 已产出 Developer ID 签名、公证并钉票据的 `ConkyMac-0.1.0.dmg`（`~/Local/my-proj-temp/conkymac/dist/`），模拟下载后 Gatekeeper 通过。
 - 性能：被遮挡不重绘、全遮挡时暂停显示类采集；一块面板可见约 1.4%（iStat 约 1.3%）。
 
+- M5：0.1.1 在用户的 M5 MacBook Air 上温度/频率显示正常（口头确认）；`ConkyMac --sensors` 可用于排查其他芯片。发布产物 `ConkyMac-0.1.1.dmg` 已签名、公证。
+
 ### 未完成
 
 - 手动检查菜单 Hide/Show/Quit/Theme、Spaces 切换、热插拔、休眠/唤醒、Stage Manager。

@@ -152,11 +152,11 @@
 - `ConkyMac --sensors` 打印芯片、核心类型、全部 `voltage-states*` 表、IOReport 通道状态与匹配到的表、所有 `T*` 浮点 SMC 键（`*` 为选中的 CPU 键）和最终结果，供在未验证的芯片上取证。
 - 审查（采纳）：PCPU 不再回退 states22（Stats 无此配对，可能给出“合理但错误”的数字）；键表按芯片选取；没有 E 核的芯片不再因缺 states1 关闭频率。
 - M4 Max 回归：`*` 选中 25 个键，闲置/8 进程满载/冷却时最大值 84.1/67.8/54.5 °C，与只看 `Tpx*`/`Tex*` 的 84.1/67.8/54.3 °C 一致（末项差 0.2 °C 来自两次读取的时间差）；频率与簇占用不变。
-- **未在 M5 硬件上验证**：以上按 Stats 源码实现，没有 M5 设备。M5 上的实际键名与表需用 `--sensors` 的输出确认。
+- **M5 实机确认**：用户在 M5 MacBook Air 上安装 0.1.1 后反馈温度与频率显示正常（口头确认，未提供 `--sensors` 输出和具体数值，也未与活动监视器对照）。具体 SMC 键名、DVFS 表长与通道状态数因此仍未记录；M1–M3 与 M4 非 Max 尚无人验证。
 
 ### 仍未验证
 
-M5（及 M1–M3、M4 非 Max）的温度与频率实际读数；菜单栏 Hide/Show/Quit 与 Theme 切换的实际点击；温度/频率与活动监视器或 `powermetrics` 的对照；Spaces 逐个切换、显示器热插拔/重排、Stage Manager；真实休眠/唤醒；Instruments profile；长时间（小时级）内存曲线；macOS 14 实机。Quit 路径仅经 `--smoke` 结束时的 `NSApp.terminate` 验证。
+M1–M3、M4 非 Max 的温度与频率实际读数，以及 M5 的具体数值（仅有“显示正常”的口头确认）；菜单栏 Hide/Show/Quit 与 Theme 切换的实际点击；温度/频率与活动监视器或 `powermetrics` 的对照；Spaces 逐个切换、显示器热插拔/重排、Stage Manager；真实休眠/唤醒；Instruments profile；长时间（小时级）内存曲线；macOS 14 实机。Quit 路径仅经 `--smoke` 结束时的 `NSApp.terminate` 验证。
 
 ## 恢复前原定顺序（已执行 1–3 的可自动部分）
 
