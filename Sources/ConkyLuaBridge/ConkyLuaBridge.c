@@ -432,6 +432,7 @@ void conky_lua_close(ConkyLua *self) {
     // Finalizers may still call conky_parse while closing; never reach the Swift owner then.
     self->parse = NULL;
     if (self->L) lua_close(self->L);
+    conky_cairo_close(self);
     CGColorSpaceRelease(self->space);
     free(self->conf_dir); free(self->lua_load); free(self->hook_pre); free(self->hook_post);
     free(self->text);

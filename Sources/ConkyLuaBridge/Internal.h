@@ -2,11 +2,24 @@
 #define CONKY_LUA_INTERNAL_H
 
 #include "ConkyLuaBridge.h"
+#include <CoreText/CoreText.h>
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
 
 #pragma clang assume_nonnull begin
+
+#define FONT_CACHE_SIZE 32
+
+/// One cached toy-API font; slots are reused least-recently-used first.
+typedef struct {
+    CTFontRef _Nullable font;
+    char family[128];
+    int slant, weight;
+    double size;
+    bool skew;  // Synthesised oblique: no italic face could be created.
+    unsigned long long used;
+} ConkyFont;
 
 struct ConkyLua {
     lua_State *_Nullable L;
@@ -25,10 +38,14 @@ struct ConkyLua {
     char *_Nullable *_Nullable config_keys, *_Nullable *_Nullable config_values;
     int config_count;
     char error[4096];
+    ConkyFont fonts[FONT_CACHE_SIZE];  // cairo text; see Cairo.c
+    unsigned long long font_clock;
 };
 
 static inline ConkyLua *_Nonnull conky_self(lua_State *_Nonnull L) { return *(ConkyLua **)lua_getextraspace(L); }
 void conky_cairo_open(lua_State *_Nonnull L);
+/// Releases the font cache; call after lua_close (finalizers may still run before that).
+void conky_cairo_close(ConkyLua *_Nonnull self);
 
 #pragma clang assume_nonnull end
 

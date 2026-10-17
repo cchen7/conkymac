@@ -8,7 +8,7 @@ let package = Package(
     targets: [
         .target(name: "CLua", exclude: ["LICENSE"], cSettings: [.define("LUA_USE_MACOSX")]),
         .target(name: "ConkyLuaBridge", dependencies: ["CLua"], cSettings: [.define("LUA_USE_MACOSX")],
-                linkerSettings: [.linkedFramework("CoreGraphics")]),
+                linkerSettings: [.linkedFramework("CoreGraphics"), .linkedFramework("CoreText"), .linkedFramework("CoreFoundation")]),
         .target(name: "CSystemPrivate", linkerSettings: [.linkedLibrary("IOReport")]),
         .target(name: "ConkyMacCore", dependencies: ["CSystemPrivate"]),
         .executableTarget(name: "ConkyMac", dependencies: ["ConkyMacCore", "ConkyLuaBridge"]),
