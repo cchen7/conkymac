@@ -170,7 +170,7 @@ Lua `longjmp`、panic 与宿主语言栈也是实现边界：脚本入口使用�
 
 - 兼容性按函数逐个实现：已支持路径、弧、贝塞尔、矩形、线型、填充规则、纯色与线性/径向渐变、变换、save/restore、paint，以及（2026-10-17 追加）文字、clip、operator 子集与 dash，见下节。**image surface、图片绘制、`cairo_mask`、`set_font_matrix`、缩放字体与其余 operator 尚未实现**；调用未实现的 `cairo_*`/`CAIRO_*` 名称报出明确错误。
 - 抗锯齿、渐变插值与 Cairo 不保证逐像素一致；以目视对比脚本意图为准。
-- `conky.text` 不渲染；`conky_parse` 只实现首批模板变量（见 README）。逐核 CPU 来自 `Snapshot.coreFractions`。
+- `conky.text` 的渲染见第 11 节；`conky_parse` 与它共用同一个变量求值器。逐核 CPU 来自 `Snapshot.coreFractions`。
 - 测量（Apple M4 Max，Release，2× 位图）：rings + Air Clock 组合主题与 `arcs` 测试主题的 GUI 烟测中，每次 Lua 钩子 p50 2.6–6.6 ms、p95 4.2–8.2 ms（1 Hz，主线程，含光栅化），运行间波动明显；尚未 profile，也未尝试移到后台队列。
 
 ### 文字、clip、operator 与 dash（2026-10-17）
@@ -183,3 +183,10 @@ Lua `longjmp`、panic 与宿主语言栈也是实现边界：脚本入口使用�
 - **已知的系统开销**：用 C 小程序单独测过，`CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, …)`、`CTFontCreateWithName(".AppleSystemUIFont", …)` 与 `CTFontCreateCopyWithAttributes` 创建系统字体时，每次创建 CoreText 内部残留约 130–150 字节（调用 `CFRelease` 后 `phys_footprint` 仍线性增长；`CTFontCreateWithName("Helvetica", …)` 不增长）。字体缓存让正常主题只在首次使用某个 family/size 组合时创建一次；反复用大量不同字号抖动缓存（>32 种）的脚本才会累积，在时间预算内约为每帧数百 KB 量级，未做进一步缓解。
 - **已知差异**：`text_extents` 不计倾斜变换；描边文字轮廓时字体里重叠的轮廓（如某些 `i` 的点与竖）会露出内部边线（`Tests/Fixtures/lua/text/` 的渐变描边文字可见）；operator 只有五种；文字抗锯齿、字形与 cairo/FreeType 不保证逐像素一致。
 
+## 11. conky.text 渲染（2026-10-17）
+
+- **分层**：纯 Swift、可单测的部分在 `ConkyMacCore`（`ConkyText.swift` 解析与条件/样式展开成“行 × 条目”，`ConkyTemplate.swift` 的 `ConkyVariables` 求值变量并格式化）；CoreText 排版与绘制在 `ConkyMac` 目标的 `ConkyTextRenderer`（主线程）。C 桥只负责把 `conky.config` 的标量项（≤256 项，值 ≤1 KiB）与 `conky.text`（≤64 KiB）复制出来，并把 `conky_lua_draw` 拆成 `draw_pre`/`draw_post`，因为 Conky 的顺序是 pre 钩子 → 文字 → post 钩子。
+- **语义来源**：解析、光标模型（`cur_x`/`cur_y`、行首加 ascent、行后加最后字体 descent、`goto` 是窗口坐标、`voffset` 累加、`alignr` 的缺省偏移 1 与“余下内容宽度只算文字和 bar/graph”、`hr` 在基线上 ascent/4、bar 缺省高 6/宽 0=填满）、`human_readable`、`uptime`、`top` 列宽均对照 `/Users/chenxin/Local/conky/src` 核对过；字号按 Xft 的 96 dpi 把 pt 换算为 px。
+- **安全决定**：模板里的 `exec*`/`lua*`/`include`/`cat`/`head`/`tail`/`curl`/`rss`/`read_tcp`/`image`/`if_existing` 等不执行、不读文件，只通过 `report` 报告；环境变量不展开；条件用显式栈而非递归；所有数值参数先过有限性检查，再夹紧到上限（位置 ±1e5，规则/bar/tab 不超过窗口宽度，高度 ≤3000，虚线 ≤4096 段）；字体缓存 ≤32、CTLine 缓存 ≤256；不自动注册主题自带的字体文件。
+- **窗口尺寸只增不减**（上限 1500×3000 pt）：文字宽度每秒变化，窗口若每秒缩放会抖动；`ThemeRenderer.prepare(snapshot:)` 先按新快照排版并更新 `size`，再分配位图，`App.followThemeSize()` 在尺寸变化时调整面板。
+- **未做**：图表（`cpugraph` 等，只留出宽高）、`own_window_*` 与 `alignment`（沿用每屏右上角的放置）、图标字体的随包分发（许可不明）、Linux 接口名（`wlan0`）与 macOS 接口的映射（一律用主接口）。

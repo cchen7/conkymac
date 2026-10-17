@@ -163,6 +163,24 @@
 
 M1–M3、M4 非 Max 的温度与频率实际读数，以及 M5 的具体数值（仅有“显示正常”的口头确认）；菜单栏 Hide/Show/Quit 与 Theme 切换的实际点击；温度/频率与活动监视器或 `powermetrics` 的对照；Spaces 逐个切换、显示器热插拔/重排、Stage Manager；真实休眠/唤醒；Instruments profile；长时间（小时级）内存曲线；macOS 14 实机。Quit 路径仅经 `--smoke` 结束时的 `NSApp.terminate` 验证。
 
+## conky.text 与 Lua 文字 API（0.2.0 开发分支，2026-10-17）
+
+范围与取舍见 README 的“Conky Lua 主题”一节。以下只记录本机跑过的结果。
+
+- **测试**：`zsh scripts/swift.sh test -c release`，核心 31 项、渲染 11 项、桥接 28 项全部通过（合并文字 API 分支并处理审查意见后重跑；桥接 28 项另在 AddressSanitizer + UBSan 的 debug 构建下通过）。`zsh scripts/validate.sh --gui` 通过（`SAMPLE_CHECK_OK`，默认主题 15 样本烟测，`draw_p95_ms=3.46`）。
+- **固定渲染**：`Tests/Fixtures/lua/text/text.conf`（Lua 文字、clip、虚线、operator）两次渲染 sha1 同为 `d0d82766…`，与合并前一致；`Tests/Fixtures/conkytext/basic/basic.conf`（颜色、goto/offset/alignr/alignc/tab、hr、bar、top、被拒绝的 exec）两次渲染 sha1 同为 `311efa96…`。
+- **代码审查（独立子代理，探针在 scratch 副本里跑，仓库只读）**：未发现内存安全问题；发现并已修复：① 4000 个不同 `${font}` 规格让字体缓存每个快照清空重建，主线程每次约 0.75 s（现超过 32 种后回退默认字体，不再清空）；② `minimum_width/height` 绕过 1500×3000 上限，位图可达约 353 MB（现于初始化时夹紧）；③ `conky.config` 超过 256 项时 `lua_next` 的键值留在 Lua 栈上，`conky.text` 被读成空（现已修，有回归测试，撤掉修复会失败）；④ `alignr`/`alignc`/bar 宽度可产生 ±1e308 乃至 NaN 的光标位置（现夹紧）；⑤ 与上游不一致：`alignc` 只右移不左移、`${voffset}` 缺省 1、`stippled_hr` 单个参数是高度、`tab` 缺省起点 0 且用 C 的取余、`$#rrggbb` 是颜色。另一处由我对照上游 `core.cc` 发现：`$name` 后紧跟的 `}` 被吞掉（此前误当作字面），原版 Minimalis 的 `$alignr}` 依赖这一点，现 `SWAP` 行不再多出 `}`。
+- **原版配置**（只在本机加载，不入库）：Minimalis `conky.conf` 与 Simple-Conky-theme 的 `.conf` 用 `--render` 都能出图，版式为标题行、两列、bar、进程表；`exec` 部分为空，缺图标字体处显示字母或 “?”，没有 Lua 错误。图表未画。
+- **桌面烟测**（双屏，`--theme <conf> --smoke 90`，Release bundle，`/usr/bin/time -l`）：
+
+  | 配置 | CPU（user+sys / 墙钟） | 最大 RSS | 渲染 p50 / p95 | 绘制 p95 |
+  |---|---|---|---|---|
+  | Minimalis | 1.95 s / 89.4 s ≈ 2.2% 单核 | 77 MB | 2.7 / 3.8 ms | 0.034 ms |
+  | Simple-Conky-theme | 1.95 s / 89.4 s ≈ 2.2% 单核 | 78 MB | 3.2 / 4.6 ms | 0.034 ms |
+
+  两块显示器各一个面板，`lua_error=false`，退出码 0。这是“进程自己的 CPU 时间”，含 `ps` 子进程（`time` 会累计已回收的子进程），**没有**和 iStat Menus 并行对比，也没有小时级曲线。
+- **只在 M4 Max 上跑**：文字渲染未在 M5 或更早的芯片上验证；与原截图的逐像素对照尚未做，用户需在自己的双屏桌面上目测。
+
 ## 恢复前原定顺序（已执行 1–3 的可自动部分）
 
 1. 确认 Git/权限服务恢复；将文档 worktree 的单文件提交并 cherry-pick 到功能分支。

@@ -109,7 +109,8 @@ public enum ConkyNode: Equatable, Sendable {
 
 /// Splits `conky.text` into text, line breaks and `$name` / `${name args}` objects.
 /// Grammar from core.cc: `$$` is a literal `$`; braces nest (so `${if_match ${cpu} > 5}` and awk's
-/// `'{print $2}'` survive); a stray `}` is text; names are lower-cased; a backslash before a
+/// `'{print $2}'` survive); a `}` right after a bare `$name` is swallowed, as upstream does
+/// (`$alignr}`); names are lower-cased; `$#rrggbb` is a colour; a backslash before a
 /// newline joins lines; a bare `#` starts a comment (`\#` is a literal `#`). Environment
 /// variables are not expanded.
 public enum ConkyTextParser {
@@ -144,12 +145,12 @@ public enum ConkyTextParser {
                     flush()
                     nodes.append(object(String(characters[(index + 2)..<(end - 1)])))
                     index = end
-                } else if next.isASCII && (next.isLetter || next.isNumber || next == "_") {
-                    var end = index + 1
+                } else if next == "#" || (next.isASCII && (next.isLetter || next.isNumber || next == "_")) {
+                    var end = index + 2
                     while end < characters.count, characters[end].isASCII, characters[end].isLetter || characters[end].isNumber || characters[end] == "_" { end += 1 }
                     flush()
                     nodes.append(.object(name: String(characters[(index + 1)..<end]).lowercased(), argument: ""))
-                    index = end
+                    index = end < characters.count && characters[end] == "}" ? end + 1 : end
                 } else {
                     buffer.append("$"); index += 1
                 }
@@ -270,19 +271,21 @@ public enum ConkyText {
                 case "font": style.font = argument.isEmpty ? nil : argument
                 case "goto": if let x = number(tokens.first), x >= 0 { add(.goto(x)) }
                 case "offset": add(.offset(number(tokens.first) ?? 1))
-                case "voffset": add(.voffset(number(tokens.first) ?? 0))
+                case "voffset": add(.voffset(number(tokens.first) ?? 1))
                 case "alignr": add(.alignRight(number(tokens.first) ?? 1))
                 case "alignc": add(.alignCenter(number(tokens.first) ?? 0))
                 case "tab":
                     let values = tokens.compactMap { number($0) }
-                    add(values.count >= 2 ? .tab(width: max(1, values[0]), start: values[1]) : .tab(width: 10, start: values.first ?? 10))
+                    add(values.count >= 2 ? .tab(width: max(1, values[0]), start: values[1]) : .tab(width: 10, start: values.first ?? 0))
                 case "hr":
                     let values = tokens.compactMap { number($0) }
                     add(.rule(height: max(1, values.first ?? 1), width: values.count > 1 ? values[1] : 0, stipple: nil))
                 case "stippled_hr":
                     let values = tokens.compactMap { number($0) }
-                    add(.rule(height: max(1, values.count > 1 ? values[1] : 1), width: values.count > 2 ? values[2] : 0,
-                              stipple: max(1, values.first ?? 1)))
+                    // One number is the height; two are gap and height; three add the width (specials.cc).
+                    let height = values.count > 1 ? values[1] : (values.first ?? 1)
+                    add(.rule(height: max(1, height), width: values.count > 2 ? values[2] : 0,
+                              stipple: values.count > 1 ? max(1, values[0]) : 1))
                 case "cpubar", "membar", "swapbar", "fs_bar", "battery_bar":
                     let parsed = size(tokens)
                     let fraction: Double?

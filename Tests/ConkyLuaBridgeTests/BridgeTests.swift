@@ -176,6 +176,22 @@ private func openTheme(_ conf: String, script: String? = nil) throws -> OpaquePo
     return try #require(opened)
 }
 
+@Test func manyConfigEntriesStillKeepTheText() throws {
+    // lua_next used to leave key and value on the stack at the 257th entry, so conky.text was read from the wrong index.
+    for key in ["'k' .. i", "i"] {
+        let theme = try openTheme("""
+        local config = {}
+        for i = 1, 300 do config[\(key)] = i end
+        conky.config = config
+        conky.text = [[hello]]
+        """)
+        defer { conky_lua_close(theme) }
+        #expect(String(cString: conky_lua_error(theme)) == "")
+        #expect(String(cString: conky_lua_text(theme)) == "hello")
+        #expect(conky_lua_config_count(theme) <= 256)
+    }
+}
+
 @Test func textOnlyThemesOpenWithoutScripts() throws {
     let theme = try openTheme("""
     conky.config = { font = 'Roboto Mono:size=7', minimum_width = 220, draw_shades = false, uppercase = true,

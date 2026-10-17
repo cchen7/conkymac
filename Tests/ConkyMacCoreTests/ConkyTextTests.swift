@@ -14,7 +14,12 @@ private func kinds(_ line: ConkyLine) -> [ConkyItem.Kind] { line.map(\.kind) }
 @Test func parserHandlesConkyGrammar() {
     #expect(ConkyTextParser.parse("a$$b ${Color Red} $alignr} $HOME") == [
         .text("a$b "), .object(name: "color", argument: "Red"), .text(" "), .object(name: "alignr", argument: ""),
-        .text("} "), .object(name: "home", argument: ""),
+        .text(" "), .object(name: "home", argument: ""),
+    ])
+    // The } after a bare $name is swallowed (core.cc), a colour can be written $#rrggbb, and ${...} eats only its own brace.
+    #expect(ConkyTextParser.parse("$swapperc}% $#ff0000 x ${cpu}}") == [
+        .object(name: "swapperc", argument: ""), .text("% "), .object(name: "#ff0000", argument: ""), .text(" x "),
+        .object(name: "cpu", argument: ""), .text("}"),
     ])
     // Braces nest, so awk's braces inside an argument and nested variables survive.
     #expect(ConkyTextParser.parse("${exec awk '{print $2}'}|${if_match ${cpu} > 5}") == [
@@ -86,6 +91,15 @@ private extension Array where Element == ConkyNode {
     #expect(result[1].isEmpty) // a blank line keeps its height
     // cpu1 is the first core: fixture 0.31 -> bar fraction, 4,100 -> height 4, width 100.
     #expect(kinds(result[2]) == [.bar(fraction: 0.31, height: 4, width: 100)])
+}
+
+@Test func layoutDefaultsFollowUpstream() {
+    let result = lines("${voffset}${tab}${tab 20}${tab 8 3}${stippled_hr 3}${stippled_hr 4 2}${stippled_hr 4 2 50}${hr}")
+    #expect(kinds(result[0]) == [
+        .voffset(1), .tab(width: 10, start: 0), .tab(width: 10, start: 20), .tab(width: 8, start: 3),
+        .rule(height: 3, width: 0, stipple: 1), .rule(height: 2, width: 0, stipple: 4),
+        .rule(height: 2, width: 50, stipple: 4), .rule(height: 1, width: 0, stipple: nil),
+    ])
 }
 
 @Test func layoutResolvesConditionsAndTrailingNewlines() {

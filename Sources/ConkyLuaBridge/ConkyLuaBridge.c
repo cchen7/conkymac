@@ -106,8 +106,9 @@ static void copy_config(lua_State *L, ConkyLua *self) {
     self->config_values = calloc(MAX_CONFIG_ENTRIES, sizeof *self->config_values);
     if (!self->config_keys || !self->config_values) return;
     lua_pushnil(L);
-    while (lua_next(L, -2) != 0 && self->config_count < MAX_CONFIG_ENTRIES) {
+    while (lua_next(L, -2) != 0) {
         // Key at -2 and value at -1; convert only copies so lua_next keeps working.
+        if (self->config_count >= MAX_CONFIG_ENTRIES) { lua_pop(L, 2); break; }
         if (lua_type(L, -2) == LUA_TSTRING) {
             size_t key_length = 0, value_length = 0;
             const char *key = lua_tolstring(L, -2, &key_length);

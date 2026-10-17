@@ -84,7 +84,7 @@ private func texts(_ layout: TextLayout) -> [Placed] {
     #expect(abs(fractions[0] - 0.14) < 1e-9 && abs(fractions[1] - 0.31) < 1e-9) // total CPU, then cpu1
     // A bar without a width fills the rest of the line up to the right edge, less one pixel.
     #expect(abs(bars[1].maxX - (inset + 200 - 1)) < 1e-9 && bars[1].height == theme.settings.defaultBarHeight)
-    #expect(rules.count == 2 && rules[0].0.height == 2 && rules[0].1 == nil && rules[1].1 == 3)
+    #expect(rules.count == 2 && rules[0].0.height == 2 && rules[0].1 == nil && rules[1].0.height == 3 && rules[1].1 == 1) // one number is the height
 }
 
 @MainActor @Test func sizeOnlyGrows() {
@@ -124,6 +124,36 @@ private func texts(_ layout: TextLayout) -> [Placed] {
     let placed = texts(theme.layout(values: values) { reported.append($0) })
     #expect(placed.count == 1) // "[][]" only; nothing the commands could have produced
     #expect(reported.count == 2)
+}
+
+@MainActor @Test func alignCenterNeverMovesLeftAndTabsUseCRemainder() {
+    let inset = ConkySettings().textInset
+    // Past the centre already: upstream leaves the cursor where it is.
+    let long = texts(renderer("0123456789012345678901234567890123456789${alignc}X", ["minimum_width": "100"]).layout(values: values))
+    #expect(long.count == 2 && abs(long[1].x - (long[0].x + long[0].width)) < 1e-9)
+    // tab 50 advances to the next multiple of 50 from the text start; with a start it follows C's remainder.
+    let tab = texts(renderer("ab${tab 50 0}c${tab 50 20}d").layout(values: values))
+    #expect(abs((tab[1].x - inset) - 50) < 1e-9)
+    let afterC = tab[1].x + tab[1].width - inset
+    #expect(abs((tab[2].x - inset) - (afterC + 50 - (afterC - 20).truncatingRemainder(dividingBy: 50))) < 1e-9)
+}
+
+@MainActor @Test func hostileCursorValuesStayFinite() {
+    let theme = renderer("${alignr -1e308}X\n${alignr}${membar ,-1e308}${membar ,-1e308}${tab}X\n${alignc -1e308}Y")
+    for placed in texts(theme.layout(values: values)) { #expect(placed.x.isFinite && abs(placed.x) <= 100_000 && placed.baseline.isFinite) }
+}
+
+@MainActor @Test func minimumSizeAndFontSpecsAreCapped() {
+    let big = renderer("x", ["minimum_width": "4096", "minimum_height": "4096", "border_inner_margin": "100"])
+    _ = big.layout(values: values)
+    #expect(big.size.width <= 1500 + 2 * big.settings.textInset + 1 && big.size.height <= 3000 + 2 * big.settings.textInset)
+    // Thousands of distinct font specs must not make every layout reload fonts.
+    let text = (0..<2000).map { "${font Menlo:size=\(5 + $0 % 7).\($0)}x" }.joined()
+    let fonts = renderer(text)
+    let start = Date()
+    _ = fonts.layout(values: values)
+    _ = fonts.layout(values: values)
+    #expect(Date().timeIntervalSince(start) < 1)
 }
 
 @MainActor @Test func hugeRulesAndBarsAreBounded() {

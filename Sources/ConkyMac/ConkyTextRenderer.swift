@@ -38,7 +38,8 @@ final class ConkyTextRenderer {
     init(text: String, settings: ConkySettings) {
         self.settings = settings
         nodes = ConkyTextParser.parse(text)
-        size = NSSize(width: settings.minimumWidth + 2 * settings.textInset + 1, height: settings.minimumHeight + 2 * settings.textInset)
+        size = NSSize(width: min(settings.minimumWidth, Self.maxWidth) + 2 * settings.textInset + 1,
+                      height: min(settings.minimumHeight, Self.maxHeight) + 2 * settings.textInset)
     }
 
     /// Evaluates the text for `values`, grows `size` if needed and returns what to draw.
@@ -114,7 +115,7 @@ final class ConkyTextRenderer {
             let widths: [Double] = zip(line, fontsOnLine).map { item, font in
                 switch item.kind {
                 case .text(let text): return self.width(of: ctLine(text, font))
-                case .bar(_, _, let barWidth), .graph(_, let barWidth): return barWidth
+                case .bar(_, _, let barWidth), .graph(_, let barWidth): return max(0, min(Self.reach, barWidth))
                 default: return 0
                 }
             }
@@ -134,12 +135,14 @@ final class ConkyTextRenderer {
                 case .goto(let x): cursorX = min(x, Self.far)
                 case .offset(let dx): cursorX = max(-Self.far, min(Self.far, cursorX + dx))
                 case .voffset(let dy): cursorY = max(-Self.far, min(Self.far, cursorY + dy))
-                case .alignRight(let n): if let areaRight { cursorX = areaRight - rest - n }
-                case .alignCenter(let n): if let width { cursorX = inset + (width - rest) / 2 - n }
+                case .alignRight(let n): if let areaRight { cursorX = max(-Self.far, min(Self.far, areaRight - rest - n)) }
+                case .alignCenter(let n):
+                    // Upstream only ever moves right: text already past the centre stays put.
+                    if let width { cursorX = max(cursorX, min(Self.far, inset + (width - rest) / 2 - n)) }
                 case .tab(let step, let start):
                     let step = min(max(1, step), Self.reach), start = min(max(0, start), Self.reach)
-                    let relative = cursorX - inset
-                    cursorX = relative < start ? inset + start : cursorX + step - (relative - start).truncatingRemainder(dividingBy: step)
+                    // conky.cc: w = step - (cur_x - text_start - start) % step, a C remainder (sign of the dividend).
+                    cursorX += step - (cursorX - inset - start).truncatingRemainder(dividingBy: step)
                 case .rule(let height, let ruleWidth, let stipple):
                     let length = min(Self.reach, ruleWidth > 0 ? ruleWidth : max(0, (areaRight ?? cursorX) - cursorX))
                     primitives.append(.rule(CGRect(x: cursorX, y: cursorY - ascent / 4, width: length, height: min(height, Self.tallest)),
@@ -168,6 +171,9 @@ final class ConkyTextRenderer {
     private func font(_ specification: String?) -> LoadedFont {
         let key = specification ?? ""
         if let cached = fonts[key] { return cached }
+        // Specs come from the theme; past the cap they all fall back to the default font instead of
+        // evicting (a theme cycling through thousands of specs would reload fonts on every layout).
+        if fonts.count >= 32 && specification != nil { return font(nil) }
         let spec = ConkyFontSpec(specification ?? settings.font)
         let manager = NSFontManager.shared
         let alias = ["monospace": "Menlo", "mono": "Menlo", "sans": "Helvetica Neue", "sans-serif": "Helvetica Neue", "serif": "Times"][spec.family.lowercased()]
@@ -182,7 +188,6 @@ final class ConkyTextRenderer {
             ?? NSFont.systemFont(ofSize: spec.pixelSize, weight: spec.bold ? .bold : .regular)
         let font = resolved as CTFont
         let loaded = LoadedFont(font: font, ascent: CTFontGetAscent(font).rounded(.up), descent: CTFontGetDescent(font).rounded(.up))
-        if fonts.count >= 32 { fonts.removeAll(); lines.removeAll() }
         fonts[key] = loaded
         return loaded
     }
